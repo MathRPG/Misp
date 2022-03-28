@@ -31,7 +31,7 @@ void create_language(void)
 {
 	static ParserProperties_t parser_properties[] = {
 		{ "number", " /-?[0-9]+/ ", },
-		{ "operator", " '+' | '-' | '*' | '/' | '%' | /min/ | /max/ ", },
+		{ "operator", " '+' | '-' | '*' | '/' | '%' | /min/ | /max/ | '^' ", },
 		{ "expr", " <number> | '(' <operator> <expr>+ ')' ", },
 		{ "misp", " /^/ <operator> <expr>+ /$/ ", },
 	};
@@ -101,7 +101,7 @@ int main()
 
 enum
 {
-	ADD, SUB, MUL, DIV, MOD, MIN, MAX, EXP
+	ADD = 1, SUB, MUL, DIV, MOD, MIN, MAX, EXP
 } operator_type(char* op)
 {
 	const char* operators[] = {
@@ -112,22 +112,34 @@ enum
 		[MOD] = "%",
 		[MIN] = "min",
 		[MAX] = "max",
-//		[EXP] = "^",
+		[EXP] = "^",
 	};
 
-	for (int i = 0; i < len(operators); ++i)
+	for (int i = 1; i < len(operators); ++i)
 	{
 		if (strcmp(op, operators[i]) == 0)
 			return i;
 	}
 
-	return -1;
+	return 0;
+}
+
+long power(long x, long y)
+{
+	// For reasons unbeknownst to me, calling pow (or its alternatives)
+	// from the math library 'undefines' my parser
+	long result = 1;
+	for (long i = 0; i < y; ++i)
+		result *= x;
+	return result;
 }
 
 long evaluate_operator(long x, char* op, long y)
 {
 	switch (operator_type(op))
 	{
+	case EXP:
+		return power(x, y);
 	case ADD:
 		return x + y;
 	case SUB:
@@ -142,8 +154,7 @@ long evaluate_operator(long x, char* op, long y)
 		return x <= y ? x : y;
 	case MAX:
 		return x >= y ? x : y;
-//	case EXP:
-//		return (long)powl(x, y);
+
 	}
 
 	return 0;
