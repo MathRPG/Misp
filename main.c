@@ -83,7 +83,7 @@ int main()
 //			mpc_ast_print(r.output);
 
 			long result = evaluate_tree(r.output);
-			printf("%li\n", result);
+			printf("%+li\n", result);
 
 			mpc_ast_delete(r.output);
 		}
@@ -161,6 +161,13 @@ long evaluate_tree(mpc_ast_t* t)
 	char* op = t->children[1]->contents;
 
 	long x = evaluate_tree(t->children[2]);
+
+//	printf("%u children\n", t->children_num);
+
+	if (t->children_num == 4 && strcmp(op, "-") == 0)
+	{
+		return -x;
+	}
 
 	int i = 3;
 	while (strstr(t->children[i]->tag, "expr"))
