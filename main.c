@@ -31,7 +31,7 @@ void create_language(void)
 {
 	static ParserProperties_t parser_properties[] = {
 		{ "number", " /-?[0-9]+/ ", },
-		{ "operator", " '+' | '-' | '*' | '/' | '%' ", },
+		{ "operator", " '+' | '-' | '*' | '/' | '%' | /min/ | /max/ ", },
 		{ "expr", " <number> | '(' <operator> <expr>+ ')' ", },
 		{ "misp", " /^/ <operator> <expr>+ /$/ ", },
 	};
@@ -101,7 +101,7 @@ int main()
 
 enum
 {
-	ADD, SUB, MUL, DIV, MOD
+	ADD, SUB, MUL, DIV, MOD, MIN, MAX, EXP
 } operator_type(char* op)
 {
 	const char* operators[] = {
@@ -110,6 +110,9 @@ enum
 		[MUL] = "*",
 		[DIV] = "/",
 		[MOD] = "%",
+		[MIN] = "min",
+		[MAX] = "max",
+//		[EXP] = "^",
 	};
 
 	for (int i = 0; i < len(operators); ++i)
@@ -135,6 +138,12 @@ long evaluate_operator(long x, char* op, long y)
 		return x / y;
 	case MOD:
 		return x % y;
+	case MIN:
+		return x <= y ? x : y;
+	case MAX:
+		return x >= y ? x : y;
+//	case EXP:
+//		return (long)powl(x, y);
 	}
 
 	return 0;
