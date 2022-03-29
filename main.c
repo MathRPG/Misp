@@ -8,7 +8,8 @@
 #define VERSION_INFO "0.0.2"
 
 #define len(array) (sizeof (array) / sizeof *(array))
-#define for_range(var, start, stop) for(int (var) = (start); (var) < (stop); ++(var))
+#define for_range(var, start, stop) \
+	for(int (var) = (start); (var) < (stop); ++(var))
 
 typedef enum mval_type
 {
@@ -126,7 +127,7 @@ int main()
 
 	while (1)
 	{
-		char* input = readline("Misp>>> ");
+		char* input = readline("Misp> ");
 
 		if (strlen(input) == 0)
 		{
@@ -162,10 +163,12 @@ int main()
 	return 0;
 }
 
-enum
+enum op_type
 {
-	ADD, SUB, MUL, DIV, MOD, MIN, MAX, EXP
-} operator_type(char* op)
+	ADD = 0, SUB, MUL, DIV, MOD, MIN, MAX, EXP
+};
+
+enum op_type operator_type(char* op)
 {
 	const char* operators[] = {
 		[ADD] = "+",
