@@ -22,8 +22,8 @@ typedef enum mval_type
 {
 	MVAL_SEXPR,
 	MVAL_ERROR,
-	MVAL_SYMBL,
-	MVAL_NUMBR,
+	MVAL_SYMBOL,
+	MVAL_INT,
 	MVAL_FLOAT,
 } type_t;
 
@@ -63,10 +63,10 @@ static const mlist_t MispEmptyList = {
     }
 #pragma clang diagnostic pop
 
-MVAL_CTOR(numbr, long, x, MVAL_NUMBR, x)
+MVAL_CTOR(numbr, long, x, MVAL_INT, x)
 MVAL_CTOR(error, char*, m, MVAL_ERROR, .err = strdup(m))
 MVAL_CTOR(float, long double, x, MVAL_FLOAT, x)
-MVAL_CTOR(symbl, char*, s, MVAL_SYMBL, .sym = strdup(s))
+MVAL_CTOR(symbl, char*, s, MVAL_SYMBOL, .sym = strdup(s))
 MVAL_CTOR(sexpr, void, , MVAL_SEXPR, MispEmptyList)
 
 void mval_delete(mval_t* v)
@@ -88,11 +88,11 @@ void mval_delete(mval_t* v)
 		free(v->err);
 		break;
 
-	case MVAL_SYMBL:
+	case MVAL_SYMBOL:
 		free(v->sym);
 		break;
 
-	case MVAL_NUMBR:
+	case MVAL_INT:
 	case MVAL_FLOAT:
 		break;
 	}
@@ -113,10 +113,10 @@ void mval_print(mval_t* v)
 	case MVAL_ERROR:
 		printf("Error: %s", v->err);
 		break;
-	case MVAL_SYMBL:
+	case MVAL_SYMBOL:
 		printf("%s", v->sym);
 		break;
-	case MVAL_NUMBR:
+	case MVAL_INT:
 		printf("%li", v->num);
 		break;
 	case MVAL_FLOAT:
@@ -233,7 +233,7 @@ mval_t* mval_take(mval_t* v, int i)
 
 bool isNumeric(mval_t* v)
 {
-	return v->type == MVAL_NUMBR || v->type == MVAL_FLOAT;
+	return v->type == MVAL_INT || v->type == MVAL_FLOAT;
 }
 
 typedef struct MispOperator
@@ -352,7 +352,7 @@ mval_t* mval_eval_sexpr(mval_t* v)
 
 	switch (f->type)
 	{
-	case MVAL_SYMBL:
+	case MVAL_SYMBOL:
 	{
 		mval_t* result = builtin_op(v, get_operator_by_symbol(f->sym));
 		mval_delete(f);
