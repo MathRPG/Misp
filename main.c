@@ -13,17 +13,20 @@
 typedef enum mval_type
 {
 	MVAL_NUM,
-	MVAL_ERR
+	MVAL_FLT,
+	MVAL_ERR,
 } type_t;
 
-typedef enum merror_type
+typedef enum merr_type
 {
 	MERR_DIV_ZERO,
 	MERR_BAD_OP,
 	MERR_BAD_NUM,
+	MERR_BAD_TYPE,
 } error_t;
 
 typedef long num_t;
+typedef long double flt_t;
 
 typedef struct MispValue
 {
@@ -32,6 +35,7 @@ typedef struct MispValue
 	union
 	{
 		num_t num;
+		flt_t flt;
 		error_t err;
 	};
 
@@ -47,6 +51,11 @@ mval_t mval_err(error_t x)
 	return (mval_t){ MVAL_ERR, .err = x, };
 }
 
+mval_t mval_flt(long double x)
+{
+	return (mval_t){ MVAL_FLT, .flt = x, };
+}
+
 void mval_print(mval_t v)
 {
 	switch (v.type)
@@ -59,8 +68,11 @@ void mval_print(mval_t v)
 			"Division by Zero",
 			"Invalid Operator",
 			"Invalid Number",
+			"Unexpected Type",
 		}[v.err]);
 		return;
+	case MVAL_FLT:
+		printf("%Lf", v.flt);
 	}
 }
 
@@ -80,7 +92,7 @@ void create_language(void)
 	{
 		const char* name, * rule;
 	} const parser_properties[] = {
-		{ "number", " /-?[0-9]+/ ", },
+		{ "number", " /[+-]?([0-9]*[.])?[0-9]+/ ", },
 		{ "operator", " '+' | '-' | '*' | '/' | '%' | \"min\" | \"max\" | '^' ", },
 		{ "expr", " <number> | '(' <operator> <expr>+ ')' ", },
 		{ "misp", " /^/ <operator> <expr>+ /$/ ", },
@@ -175,27 +187,54 @@ enum
 	return 0;
 }
 
-long power(long x, long y)
+mval_t promote_value(mval_t x)
 {
-	// For reasons unbeknownst to me, calling pow (or its alternatives)
-	// from the math library 'undefines' my parser
-	long result = 1;
-	for (long i = 0; i < y; ++i)
-		result *= x;
-	return result;
+	switch (x.type)
+	{
+	case MVAL_NUM:
+		return (mval_t){ MVAL_FLT, .flt = (long double)x.num, };
+	default:
+		return x;
+	}
 }
 
-mval_t evaluate_operator(mval_t x_, char* op, mval_t y_)
+mval_t eval_op_flt(mval_t x_, char* op, mval_t y_)
 {
-	if (x_.type == MVAL_ERR) return x_;
-	if (y_.type == MVAL_ERR) return y_;
+	long double x = x_.flt, y = y_.flt;
 
+	switch (operator_type(op))
+	{
+	case EXP:
+		return mval_flt(powl(x, y));
+	case ADD:
+		return mval_flt(x + y);
+	case SUB:
+		return mval_flt(x - y);
+	case MUL:
+		return mval_flt(x * y);
+	case DIV:
+		return y == 0.0
+			   ? mval_err(MERR_DIV_ZERO)
+			   : mval_flt(x / y);
+	case MOD:
+		return mval_err(MERR_BAD_TYPE);
+	case MIN:
+		return mval_flt(x <= y ? x : y);
+	case MAX:
+		return mval_flt(x >= y ? x : y);
+	default:
+		return mval_err(MERR_BAD_OP);
+	}
+}
+
+mval_t eval_op_num(mval_t x_, char* op, mval_t y_)
+{
 	long x = x_.num, y = y_.num;
 
 	switch (operator_type(op))
 	{
 	case EXP:
-		return mval_num(power(x, y));
+		return mval_num((long)powl(x, y));
 	case ADD:
 		return mval_num(x + y);
 	case SUB:
@@ -214,9 +253,24 @@ mval_t evaluate_operator(mval_t x_, char* op, mval_t y_)
 		return mval_num(x <= y ? x : y);
 	case MAX:
 		return mval_num(x >= y ? x : y);
+	default:
+		return mval_err(MERR_BAD_OP);
 	}
+}
 
-	return mval_err(MERR_BAD_OP);
+mval_t evaluate_operator(mval_t x, char* op, mval_t y)
+{
+	if (x.type == MVAL_ERR) return x;
+	if (y.type == MVAL_ERR) return y;
+
+	if (x.type == MVAL_NUM && y.type == MVAL_NUM)
+		return eval_op_num(x, op, y);
+
+	return eval_op_flt(
+		promote_value(x),
+		op,
+		promote_value(y)
+	);
 }
 
 #pragma clang diagnostic push
@@ -226,10 +280,14 @@ mval_t evaluate_tree(mpc_ast_t* t)
 	if (strstr(t->tag, "number"))
 	{
 		errno = 0;
-		long value = strtol(t->contents, NULL, 10);
-		return errno != ERANGE
-			   ? mval_num(value)
-			   : mval_err(MERR_BAD_NUM);
+		long double value = strtold(t->contents, NULL);
+
+		if (errno == ERANGE)
+			return mval_err(MERR_BAD_NUM);
+
+		if (strchr(t->contents, '.'))
+			return mval_flt(value);
+		return mval_num((long)value);
 	}
 
 	char* op = t->children[1]->contents;
@@ -238,9 +296,15 @@ mval_t evaluate_tree(mpc_ast_t* t)
 
 	if (t->children_num - 3 == 1 && strcmp(op, "-") == 0)
 	{
-		if (x.type == MVAL_ERR)
+		switch (x.type)
+		{
+		case MVAL_ERR:
 			return x;
-		return mval_num(-x.num);
+		case MVAL_NUM:
+			return mval_num(-x.num);
+		case MVAL_FLT:
+			return mval_flt(-x.flt);
+		}
 	}
 
 	int i = 3;
