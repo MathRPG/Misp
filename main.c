@@ -9,19 +9,21 @@
 
 #define len(array) (sizeof (array) / sizeof *(array))
 #define for_range(var, start, stop) \
-	for(int (var) = (start); (var) < (stop); ++(var))
+    for(int (var) = (start); (var) < (stop); ++(var))
 
 typedef enum mval_type
 {
-	MVAL_NUM,
-	MVAL_FLT,
-	MVAL_ERR,
+	MVAL_SEXPR,
+	MVAL_ERROR,
+	MVAL_SYMBL,
+	MVAL_NUMBR,
+	MVAL_FLOAT,
 } type_t;
 
 typedef enum merr_type
 {
 	MERR_DIV_ZERO,
-	MERR_BAD_OP,
+	MERR_BAD_OPER,
 	MERR_BAD_NUM,
 	MERR_BAD_TYPE,
 } error_t;
@@ -44,27 +46,27 @@ typedef struct MispValue
 
 mval_t mval_num(long x)
 {
-	return (mval_t){ MVAL_NUM, .num = x, };
+	return (mval_t){ MVAL_NUMBR, .num = x, };
 }
 
 mval_t mval_err(error_t x)
 {
-	return (mval_t){ MVAL_ERR, .err = x, };
+	return (mval_t){ MVAL_ERROR, .err = x, };
 }
 
 mval_t mval_flt(long double x)
 {
-	return (mval_t){ MVAL_FLT, .flt = x, };
+	return (mval_t){ MVAL_FLOAT, .flt = x, };
 }
 
 void mval_print(mval_t v)
 {
 	switch (v.type)
 	{
-	case MVAL_NUM:
+	case MVAL_NUMBR:
 		printf("%li", v.num);
 		return;
-	case MVAL_ERR:
+	case MVAL_ERROR:
 		printf("Error: %s", (const char* []){
 			"Division by Zero",
 			"Invalid Operator",
@@ -72,7 +74,7 @@ void mval_print(mval_t v)
 			"Unexpected Type",
 		}[v.err]);
 		return;
-	case MVAL_FLT:
+	case MVAL_FLOAT:
 		printf("%Lf", v.flt);
 	}
 }
@@ -83,22 +85,25 @@ void mval_println(mval_t v)
 	putchar('\n');
 }
 
-mval_t evaluate_tree(mpc_ast_t* t);
-
-static mpc_parser_t* parsers[4];
-
-void create_language(void)
+mpc_parser_t** create_language(void)
 {
 	struct
 	{
 		const char* name, * rule;
 	} const parser_properties[] = {
 		{ "number", " /[+-]?([0-9]*[.])?[0-9]+/ ", },
-		{ "operator", " '+' | '-' | '*' | '/' | '%' | \"min\" | \"max\" | '^' ", },
-		{ "expr", " <number> | '(' <operator> <expr>+ ')' ", },
-		{ "misp", " /^/ <operator> <expr>+ /$/ ", },
+		{ "symbol", " '+' | '-' | '*' | '/' | '%' | \"min\" | \"max\" | '^' ", },
+		{ "sexpr", " '(' <expr>* ')' ", },
+		{ "expr", " <number> | <symbol> | <sexpr> ", },
+		{ "misp", " /^/ <expr>* /$/ ", },
 	};
 
+	enum
+	{
+		MISP = len(parser_properties),
+	};
+
+	static mpc_parser_t* parsers[len(parser_properties)];
 	static char language_grammar[2048];
 
 	for_range(i, 0, 4)
@@ -107,7 +112,7 @@ void create_language(void)
 
 		char temp[256];
 
-		sprintf(temp, "%s : %s ; ",
+		sprintf(temp, " %s : %s ; ",
 			parser_properties[i].name,
 			parser_properties[i].rule);
 
@@ -115,12 +120,22 @@ void create_language(void)
 	}
 
 	mpca_lang(MPCA_LANG_DEFAULT, language_grammar,
-		parsers[0], parsers[1], parsers[2], parsers[3]);
+		parsers[0], parsers[1], parsers[2], parsers[3], parsers[4]);
+
+	return parsers;
 }
+
+void cleanup_parsers(int _, mpc_parser_t* const* const parsers)
+{
+	mpc_cleanup(5, parsers[0], parsers[1], parsers[2], parsers[3], parsers[4]);
+}
+
+mval_t evaluate_tree(mpc_ast_t* t);
 
 int main()
 {
-	create_language();
+	mpc_parser_t* const* const parsers = create_language();
+	on_exit((void (*)(int, void*))cleanup_parsers, (void*)parsers);
 
 	puts("Misp Version " VERSION_INFO);
 	puts("Empty input to exit\n");
@@ -132,19 +147,13 @@ int main()
 		if (strlen(input) == 0)
 		{
 			free(input);
-			mpc_cleanup(4, parsers[0], parsers[1], parsers[2], parsers[3]);
 			break;
 		}
 
 		add_history(input);
 
-		enum
-		{
-			MISP = 3
-		};
-
 		mpc_result_t r;
-		if (mpc_parse("<stdin>", input, parsers[MISP], &r))
+		if (mpc_parse("<stdin>", input, parsers[4], &r))
 		{
 			mval_t result = evaluate_tree(r.output);
 			mval_println(result);
@@ -194,8 +203,8 @@ mval_t promote_value(mval_t x)
 {
 	switch (x.type)
 	{
-	case MVAL_NUM:
-		return (mval_t){ MVAL_FLT, .flt = (long double)x.num, };
+	case MVAL_NUMBR:
+		return (mval_t){ MVAL_FLOAT, .flt = (long double)x.num, };
 	default:
 		return x;
 	}
@@ -226,7 +235,7 @@ mval_t eval_op_flt(mval_t x_, char* op, mval_t y_)
 	case MAX:
 		return mval_flt(x >= y ? x : y);
 	default:
-		return mval_err(MERR_BAD_OP);
+		return mval_err(MERR_BAD_OPER);
 	}
 }
 
@@ -257,16 +266,16 @@ mval_t eval_op_num(mval_t x_, char* op, mval_t y_)
 	case MAX:
 		return mval_num(x >= y ? x : y);
 	default:
-		return mval_err(MERR_BAD_OP);
+		return mval_err(MERR_BAD_OPER);
 	}
 }
 
 mval_t evaluate_operator(mval_t x, char* op, mval_t y)
 {
-	if (x.type == MVAL_ERR) return x;
-	if (y.type == MVAL_ERR) return y;
+	if (x.type == MVAL_ERROR) return x;
+	if (y.type == MVAL_ERROR) return y;
 
-	if (x.type == MVAL_NUM && y.type == MVAL_NUM)
+	if (x.type == MVAL_NUMBR && y.type == MVAL_NUMBR)
 		return eval_op_num(x, op, y);
 
 	return eval_op_flt(
@@ -301,11 +310,11 @@ mval_t evaluate_tree(mpc_ast_t* t)
 	{
 		switch (x.type)
 		{
-		case MVAL_ERR:
+		case MVAL_ERROR:
 			return x;
-		case MVAL_NUM:
+		case MVAL_NUMBR:
 			return mval_num(-x.num);
-		case MVAL_FLT:
+		case MVAL_FLOAT:
 			return mval_flt(-x.flt);
 		}
 	}
