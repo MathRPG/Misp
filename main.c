@@ -7,38 +7,85 @@
 
 #define VERSION_INFO "0.0.2"
 
-typedef struct
+typedef enum mval_type
 {
-	const char* name;
-	const char* rule;
-} ParserProperties_t;
+	MVAL_NUM,
+	MVAL_ERR
+} type_t;
 
-long evaluate_tree(mpc_ast_t* t);
+typedef enum merror_type
+{
+	MERR_DIV_ZERO,
+	MERR_BAD_OP,
+	MERR_BAD_NUM,
+} error_t;
+
+typedef long num_t;
+
+typedef struct MispValue
+{
+	enum mval_type type;
+
+	union
+	{
+		num_t num;
+		error_t err;
+	};
+
+} mval_t;
+
+mval_t mval_num(long x)
+{
+	return (mval_t){ MVAL_NUM, .num = x, };
+}
+
+mval_t mval_err(error_t x)
+{
+	return (mval_t){ MVAL_ERR, .err = x, };
+}
+
+void mval_print(mval_t v)
+{
+	switch (v.type)
+	{
+	case MVAL_NUM:
+		printf("%li", v.num);
+		return;
+	case MVAL_ERR:
+		printf("Error: %s", (const char* []){
+			"Division by Zero",
+			"Invalid Operator",
+			"Invalid Number",
+		}[v.err]);
+		return;
+	}
+}
+
+void mval_println(mval_t v)
+{
+	mval_print(v);
+	putchar('\n');
+}
+
+mval_t evaluate_tree(mpc_ast_t* t);
 
 static mpc_parser_t* parsers[4];
 
-enum
-{
-	NUMBER = 0, OPERATOR, EXPR, MISP
-};
-
-void cleanup(void)
-{
-	mpc_cleanup(4, parsers[NUMBER], parsers[OPERATOR], parsers[EXPR], parsers[MISP]);
-}
-
 void create_language(void)
 {
-	static ParserProperties_t parser_properties[] = {
+	struct
+	{
+		const char* name, * rule;
+	} const parser_properties[] = {
 		{ "number", " /-?[0-9]+/ ", },
-		{ "operator", " '+' | '-' | '*' | '/' | '%' | /min/ | /max/ | '^' ", },
+		{ "operator", " '+' | '-' | '*' | '/' | '%' | \"min\" | \"max\" | '^' ", },
 		{ "expr", " <number> | '(' <operator> <expr>+ ')' ", },
 		{ "misp", " /^/ <operator> <expr>+ /$/ ", },
 	};
 
 #define len(array) (sizeof (array) / sizeof *(array))
 
-	char language_grammar[2048];
+	static char language_grammar[2048];
 
 	for (int i = 0; i < 4; ++i)
 	{
@@ -46,7 +93,7 @@ void create_language(void)
 
 		char temp[256];
 
-		sprintf(temp, "%s : %s ;",
+		sprintf(temp, "%s : %s ; ",
 			parser_properties[i].name,
 			parser_properties[i].rule);
 
@@ -60,7 +107,6 @@ void create_language(void)
 int main()
 {
 	create_language();
-	atexit(cleanup);
 
 	puts("Misp Version " VERSION_INFO);
 	puts("Empty input to exit\n");
@@ -72,18 +118,22 @@ int main()
 		if (strlen(input) == 0)
 		{
 			free(input);
+			mpc_cleanup(4, parsers[0], parsers[1], parsers[2], parsers[3]);
 			break;
 		}
 
 		add_history(input);
 
+		enum
+		{
+			MISP = 3
+		};
+
 		mpc_result_t r;
 		if (mpc_parse("<stdin>", input, parsers[MISP], &r))
 		{
-//			mpc_ast_print(r.output);
-
-			long result = evaluate_tree(r.output);
-			printf("%+li\n", result);
+			mval_t result = evaluate_tree(r.output);
+			mval_println(result);
 
 			mpc_ast_delete(r.output);
 		}
@@ -134,50 +184,62 @@ long power(long x, long y)
 	return result;
 }
 
-long evaluate_operator(long x, char* op, long y)
+mval_t evaluate_operator(mval_t x_, char* op, mval_t y_)
 {
+	if (x_.type == MVAL_ERR) return x_;
+	if (y_.type == MVAL_ERR) return y_;
+
+	long x = x_.num, y = y_.num;
+
 	switch (operator_type(op))
 	{
 	case EXP:
-		return power(x, y);
+		return mval_num(power(x, y));
 	case ADD:
-		return x + y;
+		return mval_num(x + y);
 	case SUB:
-		return x - y;
+		return mval_num(x - y);
 	case MUL:
-		return x * y;
+		return mval_num(x * y);
 	case DIV:
-		return x / y;
+		return y == 0
+			   ? mval_err(MERR_DIV_ZERO)
+			   : mval_num(x / y);
 	case MOD:
-		return x % y;
+		return y == 0
+			   ? mval_err(MERR_DIV_ZERO)
+			   : mval_num(x % y);
 	case MIN:
-		return x <= y ? x : y;
+		return mval_num(x <= y ? x : y);
 	case MAX:
-		return x >= y ? x : y;
-
+		return mval_num(x >= y ? x : y);
 	}
 
-	return 0;
+	return mval_err(MERR_BAD_OP);
 }
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "misc-no-recursion"
-long evaluate_tree(mpc_ast_t* t)
+mval_t evaluate_tree(mpc_ast_t* t)
 {
 	if (strstr(t->tag, "number"))
 	{
-		return strtol(t->contents, NULL, 10);
+		errno = 0;
+		long value = strtol(t->contents, NULL, 10);
+		return errno != ERANGE
+			   ? mval_num(value)
+			   : mval_err(MERR_BAD_NUM);
 	}
 
 	char* op = t->children[1]->contents;
 
-	long x = evaluate_tree(t->children[2]);
-
-//	printf("%u children\n", t->children_num);
+	mval_t x = evaluate_tree(t->children[2]);
 
 	if (t->children_num == 4 && strcmp(op, "-") == 0)
 	{
-		return -x;
+		if (x.type == MVAL_ERR)
+			return x;
+		return mval_num(-x.num);
 	}
 
 	int i = 3;
