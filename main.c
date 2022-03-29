@@ -3,10 +3,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include <editline/history.h>
-#include <stdbool.h>
-#include <stdint.h>
 
 #include "mpc/mpc.h"
 
@@ -63,7 +62,7 @@ static const mlist_t MispEmptyList = {
     }
 #pragma clang diagnostic pop
 
-MVAL_CTOR(numbr, long, x, MVAL_INT, x)
+MVAL_CTOR(int, long, x, MVAL_INT, x)
 MVAL_CTOR(error, char*, m, MVAL_ERROR, .err = strdup(m))
 MVAL_CTOR(float, long double, x, MVAL_FLOAT, x)
 MVAL_CTOR(symbl, char*, s, MVAL_SYMBOL, .sym = strdup(s))
@@ -148,6 +147,11 @@ void mval_println(mval_t* v)
 	putchar('\n');
 }
 
+bool is_integer(const char* s)
+{
+	return strchr(s, '.') != NULL;
+}
+
 mval_t* mval_read_num(const char* s)
 {
 	errno = 0;
@@ -156,13 +160,9 @@ mval_t* mval_read_num(const char* s)
 	if (errno == ERANGE)
 		return mval_error("Invalid Number");
 
-	switch ((intptr_t)strchr(s, '.'))
-	{
-	case 0: // Integer
-		return mval_numbr((long)value);
-	default:
-		return mval_float(value);
-	}
+	if (is_integer(s))
+		return mval_int((long)value);
+	return mval_float(value);
 }
 
 void mval_list_add(struct MispList* v, mval_t* x)
@@ -378,11 +378,6 @@ mpc_parser_t** create_language(void)
 		{ "sexpr", " '(' <sexpr>* ')' ", },
 		{ "sexpr", " <number> | <symbol> | <sexpr> ", },
 		{ "misp", " /^/ <sexpr>* /$/ ", },
-	};
-
-	enum
-	{
-		MISP = len(parser_properties),
 	};
 
 	static mpc_parser_t* parsers[len(parser_properties)];
