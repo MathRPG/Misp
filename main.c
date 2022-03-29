@@ -26,13 +26,13 @@ typedef enum mval_type
 	MVAL_FLOAT,
 } type_t;
 
-typedef struct MispValue mval_t;
+typedef struct MispValue mval;
 
 typedef struct MispList
 {
 	int count;
-	mval_t** cells;
-} mlist_t;
+	mval** values;
+} mlist;
 
 struct MispValue
 {
@@ -40,7 +40,7 @@ struct MispValue
 
 	union
 	{
-		mlist_t sexpr;
+		mlist sexpr;
 		char* err;
 		char* sym;
 		long num;
@@ -48,16 +48,16 @@ struct MispValue
 	};
 };
 
-static const mlist_t MispEmptyList = {
-	.count = 0, .cells = NULL,
+static const mlist EmptyMispList = {
+	.count = 0, .values = NULL,
 };
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "bugprone-macro-parentheses"
 #define MVAL_CTOR(name, type, arg, enum_, field_set) \
-    mval_t* mval_ ## name (type arg) {             \
-        mval_t* v = malloc(sizeof *v);        \
-        *v = (mval_t) {(enum_), field_set,};   \
+    mval* mval_ ## name (type arg) {             \
+        mval* v = malloc(sizeof *v);        \
+        *v = (mval) {(enum_), field_set,};   \
         return v;                             \
     }
 #pragma clang diagnostic pop
@@ -66,9 +66,9 @@ MVAL_CTOR(int, long, x, MVAL_INT, x)
 MVAL_CTOR(error, char*, m, MVAL_ERROR, .err = strdup(m))
 MVAL_CTOR(float, long double, x, MVAL_FLOAT, x)
 MVAL_CTOR(symbl, char*, s, MVAL_SYMBOL, .sym = strdup(s))
-MVAL_CTOR(sexpr, void, , MVAL_SEXPR, MispEmptyList)
+MVAL_CTOR(sexpr, void, , MVAL_SEXPR, EmptyMispList)
 
-void mval_delete(mval_t* v)
+void mval_delete(mval* v)
 {
 	switch (v->type)
 	{
@@ -76,10 +76,10 @@ void mval_delete(mval_t* v)
 	{
 		for_range(i, 0, v->sexpr.count)
 		{
-			mval_delete(v->sexpr.cells[i]);
+			mval_delete(v->sexpr.values[i]);
 		}
 
-		free(v->sexpr.cells);
+		free(v->sexpr.values);
 		break;
 	}
 
@@ -99,10 +99,10 @@ void mval_delete(mval_t* v)
 	free(v);
 }
 
-void mval_print(mval_t*);
-void mval_sexpr_print(mlist_t*);
+void mval_print(mval*);
+void mval_sexpr_print(mlist*);
 
-void mval_print(mval_t* v)
+void mval_print(mval* v)
 {
 	switch (v->type)
 	{
@@ -124,13 +124,13 @@ void mval_print(mval_t* v)
 	}
 }
 
-void mval_sexpr_print(mlist_t* l)
+void mval_sexpr_print(mlist* l)
 {
 	putchar('(');
 
 	for_range(i, 0, l->count)
 	{
-		mval_print(l->cells[i]);
+		mval_print(l->values[i]);
 
 		if (i != (l->count - 1))
 		{
@@ -141,7 +141,7 @@ void mval_sexpr_print(mlist_t* l)
 	putchar(')');
 }
 
-void mval_println(mval_t* v)
+void mval_println(mval* v)
 {
 	mval_print(v);
 	putchar('\n');
@@ -149,10 +149,10 @@ void mval_println(mval_t* v)
 
 bool is_integer(const char* s)
 {
-	return strchr(s, '.') != NULL;
+	return strchr(s, '.') == NULL;
 }
 
-mval_t* mval_read_num(const char* s)
+mval* mval_read_num(const char* s)
 {
 	errno = 0;
 	long double value = strtold(s, NULL);
@@ -165,11 +165,11 @@ mval_t* mval_read_num(const char* s)
 	return mval_float(value);
 }
 
-void mval_list_add(struct MispList* v, mval_t* x)
+void mval_list_add(mlist* v, mval* x)
 {
 	v->count++;
-	v->cells = realloc(v->cells, sizeof(mval_t*) * v->count);
-	v->cells[v->count - 1] = x;
+	v->values = realloc(v->values, sizeof(mval*) * v->count);
+	v->values[v->count - 1] = x;
 }
 
 bool hasMispExpression(mpc_ast_t* const* child)
@@ -179,7 +179,7 @@ bool hasMispExpression(mpc_ast_t* const* child)
 			 || strcmp((*child)->contents, ")") == 0);
 }
 
-mval_t* mval_read(mpc_ast_t* t)
+mval* mval_read(mpc_ast_t* t)
 {
 	const char* tag = t->tag;
 	if (strstr(tag, "number"))
@@ -191,7 +191,7 @@ mval_t* mval_read(mpc_ast_t* t)
 	if (strcmp(tag, ">") != 0 && !strstr(tag, "sexpr"))
 		return mval_error("Invalid token");
 
-	mval_t* x = mval_sexpr();
+	mval* x = mval_sexpr();
 
 	for (mpc_ast_t** child = t->children;
 		 child != t->children + t->children_num;
@@ -206,32 +206,32 @@ mval_t* mval_read(mpc_ast_t* t)
 	return x;
 }
 
-mval_t* mval_pop(mlist_t* l, int i)
+mval* mval_pop(mlist* l, int i)
 {
-	mval_t* x = l->cells[i];
+	mval* x = l->values[i];
 
 	unsigned cells_to_shift = l->count - i - 1;
 
 	memmove(
-		&l->cells[i],
-		&l->cells[i + 1],
-		sizeof(mval_t*) * cells_to_shift
+		&l->values[i],
+		&l->values[i + 1],
+		sizeof(mval*) * cells_to_shift
 	);
 
 	l->count--;
-	l->cells = realloc(l->cells, sizeof(mval_t*) * l->count);
+	l->values = realloc(l->values, sizeof(mval*) * l->count);
 
 	return x;
 }
 
-mval_t* mval_take(mval_t* v, int i)
+mval* mval_take(mval* v, int i)
 {
-	mval_t* x = mval_pop(&v->sexpr, i);
+	mval* x = mval_pop(&v->sexpr, i);
 	mval_delete(v);
 	return x;
 }
 
-bool isNumeric(mval_t* v)
+bool isNumeric(mval* v)
 {
 	return v->type == MVAL_INT || v->type == MVAL_FLOAT;
 }
@@ -239,23 +239,23 @@ bool isNumeric(mval_t* v)
 typedef struct MispOperator
 {
 	char* name;
-	void (* apply)(mval_t*, mval_t*);
-} mop_t;
+	void (* apply)(mval*, mval*);
+} moper;
 
-mval_t* builtin_op(mval_t* v, const mop_t* op)
+mval* builtin_op(mval* v, const moper* op)
 {
-	mlist_t* l = &v->sexpr;
+	mlist* l = &v->sexpr;
 
 	for_range(i, 0, l->count)
 	{
-		if (!isNumeric(l->cells[i]))
+		if (!isNumeric(l->values[i]))
 		{
 			mval_delete(v);
 			return mval_error("Unsupported type for operation");
 		}
 	}
 
-	mval_t* x = mval_pop(l, 0);
+	mval* x = mval_pop(l, 0);
 
 	if (l->count == 0)
 	{
@@ -265,7 +265,7 @@ mval_t* builtin_op(mval_t* v, const mop_t* op)
 
 	while (l->count > 0)
 	{
-		mval_t* y = mval_pop(&v->sexpr, 0);
+		mval* y = mval_pop(&v->sexpr, 0);
 		op->apply(x, y);
 		mval_delete(y);
 	}
@@ -274,17 +274,17 @@ mval_t* builtin_op(mval_t* v, const mop_t* op)
 	return x;
 }
 
-mval_t* mval_eval(mval_t* v);
-mval_t* mval_eval_sexpr(mval_t* v);
+mval* mval_eval(mval* v);
+mval* mval_eval_sexpr(mval* v);
 
-mval_t* mval_eval(mval_t* v)
+mval* mval_eval(mval* v)
 {
 	if (v->type == MVAL_SEXPR)
 		return mval_eval_sexpr(v);
 	return v;
 }
 
-void mval_builtin_add(mval_t* x, mval_t* y)
+void mval_builtin_add(mval* x, mval* y)
 {
 	if (y == NULL)
 		return;
@@ -292,7 +292,7 @@ void mval_builtin_add(mval_t* x, mval_t* y)
 	x->num += y->num;
 }
 
-void mval_builtin_sub(mval_t* x, mval_t* y)
+void mval_builtin_sub(mval* x, mval* y)
 {
 	if (y == NULL)
 	{
@@ -303,14 +303,14 @@ void mval_builtin_sub(mval_t* x, mval_t* y)
 	x->num -= y->num;
 }
 
-void mval_builtin_div(mval_t* x, mval_t* y)
+void mval_builtin_div(mval* x, mval* y)
 {
 	x->num /= y->num;
 }
 
-const mop_t* get_operator_by_symbol(char* sym)
+const moper* get_operator_by_symbol(char* sym)
 {
-	static const mop_t ops[] = {
+	static const moper ops[] = {
 		{ "+", mval_builtin_add, },
 		{ "-", mval_builtin_sub, },
 		{ "/", mval_builtin_div, },
@@ -325,18 +325,18 @@ const mop_t* get_operator_by_symbol(char* sym)
 	return NULL;
 }
 
-mval_t* mval_eval_sexpr(mval_t* v)
+mval* mval_eval_sexpr(mval* v)
 {
-	mlist_t* l = &v->sexpr;
+	mlist* l = &v->sexpr;
 
 	for_range(i, 0, l->count)
 	{
-		l->cells[i] = mval_eval(l->cells[i]);
+		l->values[i] = mval_eval(l->values[i]);
 	}
 
 	for_range(i, 0, l->count)
 	{
-		if (l->cells[i]->type == MVAL_ERROR)
+		if (l->values[i]->type == MVAL_ERROR)
 			return mval_take(v, i);
 	}
 
@@ -348,13 +348,13 @@ mval_t* mval_eval_sexpr(mval_t* v)
 		return mval_take(v, 0);
 	}
 
-	mval_t* f = mval_pop(&v->sexpr, 0);
+	mval* f = mval_pop(&v->sexpr, 0);
 
 	switch (f->type)
 	{
 	case MVAL_SYMBOL:
 	{
-		mval_t* result = builtin_op(v, get_operator_by_symbol(f->sym));
+		mval* result = builtin_op(v, get_operator_by_symbol(f->sym));
 		mval_delete(f);
 		return result;
 	}
@@ -374,10 +374,10 @@ mpc_parser_t** create_language(void)
 		const char* name, * rule;
 	} const parser_properties[] = {
 		{ "number", " /[+-]?([0-9]*[.])?[0-9]+/ ", },
-		{ "symbol", " '+' | '-' | '*' | '/' | '%' | \"min\" | \"max\" | '^' ", },
-		{ "sexpr", " '(' <sexpr>* ')' ", },
-		{ "sexpr", " <number> | <symbol> | <sexpr> ", },
-		{ "misp", " /^/ <sexpr>* /$/ ", },
+		{ "symbol", " '+' | '-' | '*' | '/' ", },
+		{ "sexpr", " '(' <expr>* ')' ", },
+		{ "expr", " <number> | <symbol> | <sexpr> ", },
+		{ "misp", " /^/ <expr>* /$/ ", },
 	};
 
 	static mpc_parser_t* parsers[len(parser_properties)];
@@ -432,7 +432,7 @@ int main()
 		mpc_result_t r;
 		if (mpc_parse("<stdin>", input, parsers[4], &r))
 		{
-			mval_t* v = mval_read(r.output);
+			mval* v = mval_read(r.output);
 			v = mval_eval(v);
 			mval_println(v);
 			mval_delete(v);
