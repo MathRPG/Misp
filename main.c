@@ -7,6 +7,9 @@
 
 #define VERSION_INFO "0.0.2"
 
+#define len(array) (sizeof (array) / sizeof *(array))
+#define for_range(var, start, stop) for(int (var) = (start); (var) < (stop); ++(var))
+
 typedef enum mval_type
 {
 	MVAL_NUM,
@@ -83,11 +86,9 @@ void create_language(void)
 		{ "misp", " /^/ <operator> <expr>+ /$/ ", },
 	};
 
-#define len(array) (sizeof (array) / sizeof *(array))
-
 	static char language_grammar[2048];
 
-	for (int i = 0; i < 4; ++i)
+	for_range(i, 0, 4)
 	{
 		parsers[i] = mpc_new(parser_properties[i].name);
 
@@ -151,7 +152,7 @@ int main()
 
 enum
 {
-	ADD = 1, SUB, MUL, DIV, MOD, MIN, MAX, EXP
+	ADD, SUB, MUL, DIV, MOD, MIN, MAX, EXP
 } operator_type(char* op)
 {
 	const char* operators[] = {
@@ -165,7 +166,7 @@ enum
 		[EXP] = "^",
 	};
 
-	for (int i = 1; i < len(operators); ++i)
+	for_range(i, 0, len(operators))
 	{
 		if (strcmp(op, operators[i]) == 0)
 			return i;
@@ -235,7 +236,7 @@ mval_t evaluate_tree(mpc_ast_t* t)
 
 	mval_t x = evaluate_tree(t->children[2]);
 
-	if (t->children_num == 4 && strcmp(op, "-") == 0)
+	if (t->children_num - 3 == 1 && strcmp(op, "-") == 0)
 	{
 		if (x.type == MVAL_ERR)
 			return x;
