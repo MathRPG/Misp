@@ -19,14 +19,16 @@ mpc_parser_t** create_language(void)
 	{
 		const char* name, * rule;
 	} const parser_properties[] = {
-		{ "number", " /[+-]?([0-9]*[.])?[0-9]+/ ", },
+//		{ "number", " /[+-]?([0-9]*[.])?[0-9]+/ ", },
+		{ "number", " /[+-]?[0-9]+/ ", },
 		{ "symbol", " '+' | '-' | '*' | '/' ", },
 		{ "sexpr", " '(' <expr>* ')' ", },
-		{ "expr", " <number> | <symbol> | <sexpr> ", },
+		{ "qexpr", " '{' <expr>* '}' ", },
+		{ "expr", " <number> | <symbol> | <sexpr> | <qexpr> ", },
 		{ "misp", " /^/ <expr>* /$/ ", },
 	};
 
-#define MISP 4
+#define MISP 5
 	assert(MISP + 1 == len(parser_properties));
 
 	static mpc_parser_t* parsers[len(parser_properties)];
@@ -46,7 +48,7 @@ mpc_parser_t** create_language(void)
 	}
 
 	mpca_lang(MPCA_LANG_DEFAULT, language_grammar,
-		parsers[0], parsers[1], parsers[2], parsers[3], parsers[4]);
+		parsers[0], parsers[1], parsers[2], parsers[3], parsers[4], parsers[5]);
 
 	return parsers;
 }
@@ -55,7 +57,7 @@ void cleanup_parsers(
 	__attribute__((unused)) int _,
 	mpc_parser_t* const* const parsers)
 {
-	mpc_cleanup(5, parsers[0], parsers[1], parsers[2], parsers[3], parsers[4]);
+	mpc_cleanup(5, parsers[0], parsers[1], parsers[2], parsers[3], parsers[4], parsers[5]);
 }
 
 int main()
