@@ -65,11 +65,11 @@ struct MispOper
 #define MVAL_CTOR(name, type, arg, enum_, field_set) mval* mval_##name(type arg);
 
 #define MVAL_CTOR_LIST\
-    MVAL_CTOR(sexpr, void, , MVAL_SEXPR, EmptyMispList)\
-    MVAL_CTOR(qexpr, void, , MVAL_QEXPR, EmptyMispList)\
-    MVAL_CTOR(func, mbuiltin, f, MVAL_FUNC, .func = f)\
-    MVAL_CTOR(symbol, char*, s, MVAL_SYMBOL, .symbol = strdup(s))\
-    MVAL_CTOR(int, long, x, MVAL_INT, x)
+    MVAL_CTOR(sexpr, void, , MVAL_SEXPR, exprs = EmptyMispList)\
+    MVAL_CTOR(qexpr, void, , MVAL_QEXPR, exprs = EmptyMispList)\
+    MVAL_CTOR(func, mbuiltin, f, MVAL_FUNC, func = f)\
+    MVAL_CTOR(symbol, char*, s, MVAL_SYMBOL, symbol = strdup(s))\
+    MVAL_CTOR(int, long, x, MVAL_INT, num = x)
 
 MVAL_CTOR_LIST
 

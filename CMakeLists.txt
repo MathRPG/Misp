@@ -4,5 +4,6 @@ project(C_BuildYourOwnLisp C)
 set(CMAKE_C_STANDARD 99)
 
 add_executable(Main main.c mpc/mpc.c mpc/mpc.h misp/misp.c misp/misp.h)
+add_compile_options(-Wall -Wextra -Werror -pedantic)
 
 target_link_libraries(Main -ledit -lm)

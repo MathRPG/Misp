@@ -17,17 +17,49 @@
 #define MASSERT(args, cond, fmt, ...) \
     if (!(cond)) { mval_delete((args)); return mval_error((fmt), ##__VA_ARGS__); }
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "bugprone-macro-parentheses"
-#define MVAL_CTOR(name, type, arg, enum_, field_set) \
-    mval* mval_ ## name (type arg) {             \
-        mval* v = malloc(sizeof *v);        \
-        *v = (mval) {(enum_), field_set,};   \
+#define MVAL_CTOR(name, type_, arg, enum_, field_set) \
+    mval* mval_ ## name (type_ arg) {             \
+        mval* v = malloc(sizeof *v);                 \
+        v->type = (enum_);                                   \
+        v->field_set;\
         return v;                             \
     }
-#pragma clang diagnostic pop
 
-MVAL_CTOR_LIST
+mval* mval_sexpr(void)
+{
+	mval* v = malloc(sizeof *v);
+	v->type = (MVAL_SEXPR);
+	v->exprs = EmptyMispList;
+	return v;
+}
+mval* mval_qexpr(void)
+{
+	mval* v = malloc(sizeof *v);
+	v->type = (MVAL_QEXPR);
+	v->exprs = EmptyMispList;
+	return v;
+}
+mval* mval_func(mbuiltin f)
+{
+	mval* v = malloc(sizeof *v);
+	v->type = (MVAL_FUNC);
+	v->func = f;
+	return v;
+}
+mval* mval_symbol(char* s)
+{
+	mval* v = malloc(sizeof *v);
+	v->type = (MVAL_SYMBOL);
+	v->symbol = strdup(s);
+	return v;
+}
+mval* mval_int(long x)
+{
+	mval* v = malloc(sizeof *v);
+	v->type = (MVAL_INT);
+	v->num = x;
+	return v;
+}
 
 #undef MVAL_CTOR
 
