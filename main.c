@@ -19,9 +19,11 @@ mpc_parser_t** create_language(void)
 	{
 		const char* name, * rule;
 	} const parser_properties[] = {
-		{ "number", " /[+-]?([0-9]*[.])?[0-9]+/ ", },
-//		{ "number", " /[+-]?[0-9]+/ ", },
-		{ "symbol", " '+' | '-' | '*' | '/' ", },
+//		{ "number", " /[+-]?([0-9]*[.])?[0-9]+/ ", },
+		{ "number", " /[+-]?[0-9]+/ ", },
+		{ "symbol", " \"list\" | \"head\" | \"tail\" | "
+					" \"join\" | \"eval\" | "
+					" '+' | '-' | '*' | '/' ", },
 		{ "sexpr", " '(' <expr>* ')' ", },
 		{ "qexpr", " '{' <expr>* '}' ", },
 		{ "expr", " <number> | <symbol> | <sexpr> | <qexpr> ", },
