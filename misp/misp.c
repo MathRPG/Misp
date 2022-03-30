@@ -14,6 +14,9 @@
 #define for_range(var, start, stop) \
     for(int (var) = (start); (var) < (stop); ++(var))
 
+#define MASSERT(args, cond, fmt, ...) \
+    if (!(cond)) { mval_delete((args)); return mval_error((fmt), ##__VA_ARGS__); }
+
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "bugprone-macro-parentheses"
 #define MVAL_CTOR(name, type, arg, enum_, field_set) \
@@ -28,13 +31,30 @@ MVAL_CTOR_LIST
 
 #undef MVAL_CTOR
 
+mval* mval_error(char* fmt, ...)
+{
+	va_list va;
+	va_start(va, fmt);
+
+#define ERR_MAX_SIZE 512
+
+	mval* v = malloc(sizeof *v);
+	*v = (mval){ MVAL_ERROR, .error = malloc(ERR_MAX_SIZE), };
+	vsnprintf(v->error, ERR_MAX_SIZE - 1, fmt, va);
+
+	v->error = realloc(v->error, strlen(v->error) + 1);
+
+	va_end(va);
+	return v;
+}
+
 const struct MispList EmptyMispList = {
 	.count = 0, .values = NULL,
 };
 
 mval* mval_copy(mval* v)
 {
-	mval* x = malloc(sizeof *x);
+	mval* x = malloc(sizeof(mval));
 	x->type = v->type;
 
 	switch (v->type)
@@ -42,8 +62,8 @@ mval* mval_copy(mval* v)
 	case MVAL_SEXPR:
 	case MVAL_QEXPR:
 	{
-		x->exprs.count = x->exprs.count;
-		x->exprs.values = malloc(sizeof(mval*) * x->exprs.count);
+		x->exprs.count = v->exprs.count;
+		x->exprs.values = malloc(sizeof(mval*) * v->exprs.count);
 		for_range(i, 0, x->exprs.count)
 		{
 			x->exprs.values[i] = mval_copy(v->exprs.values[i]);
@@ -63,6 +83,8 @@ mval* mval_copy(mval* v)
 		x->num = v->num;
 		break;
 	}
+
+	return x;
 }
 
 menv* menv_new(void)
@@ -200,6 +222,30 @@ void mval_println(mval* v)
 	putchar('\n');
 }
 
+const char* mval_type_name(enum mval_type t)
+{
+	struct
+	{
+		enum mval_type type;
+		const char* name;
+	} const types[] = {
+		{ MVAL_SEXPR, "S-Expression", },
+		{ MVAL_QEXPR, "Q-Expression", },
+		{ MVAL_FUNC, "Function", },
+		{ MVAL_ERROR, "Error", },
+		{ MVAL_SYMBOL, "Symbol", },
+		{ MVAL_INT, "Number", },
+	};
+
+	for_range(i, 0, len(types))
+	{
+		if (types[i].type == t)
+			return types[i].name;
+	}
+
+	return "Unknown Type";
+}
+
 mval* mval_read_num(const char* s)
 {
 	errno = 0;
@@ -216,6 +262,11 @@ void mval_list_add(mlist* l, mval* x)
 	l->count++;
 	l->values = realloc(l->values, sizeof(mval*) * l->count);
 	l->values[l->count - 1] = x;
+}
+
+void mval_add(mval* v, mval* x)
+{
+	mval_list_add(&v->exprs, x);
 }
 
 mval* mval_pop(mlist* l, int i)
@@ -242,9 +293,6 @@ mval* mval_take(mval* v, int i)
 	mval_delete(v);
 	return x;
 }
-
-#define MASSERT(args, cond, err) \
-    if (!(cond)) { mval_delete(args); return mval_error(err); }
 
 mval* builtin_head(menv* e, mval* v)
 {
@@ -413,6 +461,40 @@ void menv_add_builtin(menv* e, char* name, mbuiltin func)
 	mval_delete(v);
 }
 
+mval* builtin_def(menv* e, mval* a)
+{
+	mlist* l = &a->exprs;
+
+	MASSERT(a, l->values[0]->type == MVAL_QEXPR,
+		"Function 'def' passed with incorrect type for argument 0.\n"
+		"Got %s, Expected %s.",
+		mval_type_name(l->values[0]->type),
+		mval_type_name(MVAL_QEXPR));
+
+	mlist* syms = &l->values[0]->exprs;
+
+	for_range(i, 0, syms->count)
+	{
+		MASSERT(a, syms->values[i]->type == MVAL_SYMBOL,
+			"Function 'def' received non-symbol in argument list.\n"
+			"Got %s, Expected %s.",
+			mval_type_name(syms->values[i]->type),
+			mval_type_name(MVAL_SYMBOL));
+	}
+
+	MASSERT(a, syms->count == l->count - 1,
+		"Function 'def' passed with incorrect number of arguments.\n"
+		"Got %s, Expected %s.", l->count, syms->count + 1);
+
+	for_range(i, 0, syms->count)
+	{
+		menv_put(e, syms->values[i], l->values[i + 1]);
+	}
+
+	mval_delete(a);
+	return mval_sexpr();
+}
+
 void menv_add_builtins(menv* e)
 {
 	struct
@@ -425,10 +507,13 @@ void menv_add_builtins(menv* e)
 		LOP(list), LOP(head), LOP(tail),
 		LOP(eval), LOP(join),
 
+		// Others
+		LOP(def),
+
 		// Math Functions
 #define MOP(symb, name) {#symb, builtin_##name,}
 		MOP(+, add), MOP(-, sub),
-		MOP(*, mul), MOP(/, div)
+		MOP(*, mul), MOP(/, div),
 	};
 
 	for_range(i, 0, len(builtins))

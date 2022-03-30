@@ -68,7 +68,6 @@ struct MispOper
     MVAL_CTOR(sexpr, void, , MVAL_SEXPR, EmptyMispList)\
     MVAL_CTOR(qexpr, void, , MVAL_QEXPR, EmptyMispList)\
     MVAL_CTOR(func, mbuiltin, f, MVAL_FUNC, .func = f)\
-    MVAL_CTOR(error, char*, m, MVAL_ERROR, .error = strdup(m))\
     MVAL_CTOR(symbol, char*, s, MVAL_SYMBOL, .symbol = strdup(s))\
     MVAL_CTOR(int, long, x, MVAL_INT, x)
 
