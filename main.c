@@ -21,9 +21,7 @@ mpc_parser_t** create_language(void)
 	} const parser_properties[] = {
 //		{ "number", " /[+-]?([0-9]*[.])?[0-9]+/ ", },
 		{ "number", " /[+-]?[0-9]+/ ", },
-		{ "symbol", " \"list\" | \"head\" | \"tail\" | "
-					" \"join\" | \"eval\" | "
-					" '+' | '-' | '*' | '/' ", },
+		{ "symbol", " /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/", },
 		{ "sexpr", " '(' <expr>* ')' ", },
 		{ "qexpr", " '{' <expr>* '}' ", },
 		{ "expr", " <number> | <symbol> | <sexpr> | <qexpr> ", },
@@ -55,9 +53,7 @@ mpc_parser_t** create_language(void)
 	return parsers;
 }
 
-void cleanup_parsers(
-	__attribute__((unused)) int _,
-	mpc_parser_t* const* const parsers)
+void cleanup_parsers(mpc_parser_t* const* const parsers)
 {
 	mpc_cleanup(5, parsers[0], parsers[1], parsers[2], parsers[3], parsers[4], parsers[5]);
 }
@@ -65,10 +61,12 @@ void cleanup_parsers(
 int main()
 {
 	mpc_parser_t* const* const parsers = create_language();
-	on_exit((void (*)(int, void*))cleanup_parsers, (void*)parsers);
 
 	puts("Misp Version " VERSION_INFO);
 	puts("Empty input to exit\n");
+
+	menv* e = menv_new();
+	menv_add_builtins(e);
 
 	while (1)
 	{
@@ -77,6 +75,8 @@ int main()
 		if (strlen(input) == 0)
 		{
 			free(input);
+			cleanup_parsers(parsers);
+			menv_delete(e);
 			return 0;
 		}
 
@@ -86,7 +86,7 @@ int main()
 		if (mpc_parse("<stdin>", input, parsers[MISP], &r))
 		{
 			mval* v = mval_read(r.output);
-			v = mval_eval(v);
+			v = mval_eval(e, v);
 			mval_println(v);
 			mval_delete(v);
 

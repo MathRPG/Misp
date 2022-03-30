@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <assert.h>
 
 #include "misp.h"
 
@@ -31,6 +32,94 @@ const struct MispList EmptyMispList = {
 	.count = 0, .values = NULL,
 };
 
+mval* mval_copy(mval* v)
+{
+	mval* x = malloc(sizeof *x);
+	x->type = v->type;
+
+	switch (v->type)
+	{
+	case MVAL_SEXPR:
+	case MVAL_QEXPR:
+	{
+		x->exprs.count = x->exprs.count;
+		x->exprs.values = malloc(sizeof(mval*) * x->exprs.count);
+		for_range(i, 0, x->exprs.count)
+		{
+			x->exprs.values[i] = mval_copy(v->exprs.values[i]);
+		}
+		break;
+	}
+	case MVAL_FUNC:
+		x->func = v->func;
+		break;
+	case MVAL_ERROR:
+		x->error = strdup(v->error);
+		break;
+	case MVAL_SYMBOL:
+		x->symbol = strdup(v->symbol);
+		break;
+	case MVAL_INT:
+		x->num = v->num;
+		break;
+	}
+}
+
+menv* menv_new(void)
+{
+	menv* e = malloc(sizeof *e);
+	*e = (menv){
+		.count = 0,
+		.syms = NULL,
+		.vals = NULL,
+	};
+	return e;
+}
+
+void menv_delete(menv* e)
+{
+	for_range(i, 0, e->count)
+	{
+		free(e->syms[i]);
+		mval_delete(e->vals[i]);
+	}
+
+	free(e->syms);
+	free(e->vals);
+	free(e);
+}
+
+mval* menv_get(menv* e, mval* k)
+{
+	for_range(i, 0, e->count)
+	{
+		if (strcmp(e->syms[i], k->symbol) == 0)
+			return mval_copy(e->vals[i]);
+	}
+
+	return mval_error("Unbound symbol!");
+}
+
+void menv_put(menv* e, mval* k, mval* v)
+{
+	for_range(i, 0, e->count)
+	{
+		if (strcmp(e->syms[i], k->symbol) == 0)
+		{
+			mval_delete(e->vals[i]);
+			e->vals[i] = mval_copy(v);
+			return;
+		}
+	}
+
+	e->count++;
+	e->vals = realloc(e->vals, sizeof(mval*) * e->count);
+	e->syms = realloc(e->syms, sizeof(char*) * e->count);
+
+	e->vals[e->count - 1] = mval_copy(v);
+	e->syms[e->count - 1] = strdup(k->symbol);
+}
+
 void mval_delete(mval* v)
 {
 	switch (v->type)
@@ -55,6 +144,7 @@ void mval_delete(mval* v)
 		free(v->symbol);
 		break;
 
+	case MVAL_FUNC:
 	case MVAL_INT:
 		break;
 	}
@@ -88,6 +178,9 @@ void mval_print(mval* v)
 		break;
 	case MVAL_QEXPR:
 		mval_exprs_print(&v->exprs, "{}");
+		break;
+	case MVAL_FUNC:
+		printf("<function>");
 		break;
 	case MVAL_ERROR:
 		printf("Error: %s", v->error);
@@ -150,46 +243,10 @@ mval* mval_take(mval* v, int i)
 	return x;
 }
 
-// TODO: remake interface
-mval* builtin(mval* v, const moper* op)
-{
-	if (op->type == MOPER_UNARY)
-		return op->apply_unary(v);
-
-	mlist* l = &v->exprs;
-
-	for_range(i, 0, l->count)
-	{
-		if (l->values[i]->type != MVAL_INT)
-		{
-			mval_delete(v);
-			return mval_error("Unsupported type for operation");
-		}
-	}
-
-	mval* x = mval_pop(l, 0);
-
-	if (l->count == 0)
-	{
-		op->apply_binary(x, NULL);
-		return x;
-	}
-
-	while (l->count > 0)
-	{
-		mval* y = mval_pop(&v->exprs, 0);
-		op->apply_binary(x, y);
-		mval_delete(y);
-	}
-
-	mval_delete(v);
-	return x;
-}
-
 #define MASSERT(args, cond, err) \
     if (!(cond)) { mval_delete(args); return mval_error(err); }
 
-mval* builtin_head(mval* v)
+mval* builtin_head(menv* e, mval* v)
 {
 	mlist* l = &v->exprs;
 
@@ -210,7 +267,7 @@ mval* builtin_head(mval* v)
 	return x;
 }
 
-mval* builtin_tail(mval* v)
+mval* builtin_tail(menv* e, mval* v)
 {
 	mlist* l = &v->exprs;
 
@@ -226,13 +283,13 @@ mval* builtin_tail(mval* v)
 	return x;
 }
 
-mval* builtin_list(mval* v)
+mval* builtin_list(menv* e, mval* v)
 {
 	v->type = MVAL_QEXPR;
 	return v;
 }
 
-mval* builtin_eval(mval* v)
+mval* builtin_eval(menv* e, mval* v)
 {
 	mlist* l = &v->exprs;
 
@@ -243,7 +300,7 @@ mval* builtin_eval(mval* v)
 
 	mval* x = mval_take(v, 0);
 	x->type = MVAL_SEXPR;
-	return mval_eval(x);
+	return mval_eval(e, x);
 }
 
 mval* mval_join(mval* x, mval* y)
@@ -257,7 +314,7 @@ mval* mval_join(mval* x, mval* y)
 	return x;
 }
 
-mval* builtin_join(mval* v)
+mval* builtin_join(menv* e, mval* v)
 {
 	mlist* l = &v->exprs;
 	for_range(i, 0, l->count)
@@ -277,68 +334,116 @@ mval* builtin_join(mval* v)
 	return x;
 }
 
-mval* builtin_add(mval* x, mval* y)
+mval* builtin_math_op(menv* e, mval* a, char* symbol)
 {
-	x->num += y->num;
-	return x;
-}
+	mlist* l = &a->exprs;
 
-mval* builtin_sub(mval* x, mval* y)
-{
-	if (y == NULL)
+	for_range(i, 0, l->count)
 	{
-		x->num *= -1;
-		return x;
+		if (l->values[i]->type != MVAL_INT)
+		{
+			mval_delete(a);
+			return mval_error("Math operation on non-number");
+		}
 	}
 
-	x->num -= y->num;
+	mval* x = mval_pop(l, 0);
+
+	if (l->count == 0 && strcmp(symbol, "-") == 0)
+	{
+		x->num = -x->num;
+	}
+
+	while (l->count > 0)
+	{
+		mval* y = mval_pop(l, 0);
+
+#define OP(symb, body) \
+    if(strcmp(symbol, #symb) == 0) { \
+        if (0) {} else { body }   \
+        x->num symb##= y->num;    \
+    }
+
+		OP(+, ;)
+		OP(-, ;)
+		OP(*, ;)
+		OP(/, {
+			if (y->num == 0)
+			{
+				mval_delete(x);
+				mval_delete(y);
+				x = mval_error("Zero Division Error");
+				break;
+			}
+		})
+
+		mval_delete(y);
+	}
+
+	mval_delete(a);
 	return x;
 }
 
-mval* builtin_div(mval* x, mval* y)
+mval* builtin_add(menv* e, mval* a)
 {
-	x->num /= y->num;
-	return x;
+	return builtin_math_op(e, a, "+");
 }
 
-static const moper* get_operator_by_symbol(char* sym)
+mval* builtin_sub(menv* e, mval* a)
 {
-#define OP1(name) { #name, MOPER_UNARY, builtin_ ## name, }
-#define OP2(symb, name) { #symb, MOPER_BINARY, .apply_binary = builtin_ ## name, }
+	return builtin_math_op(e, a, "-");
+}
 
-	static const moper ops[] = {
-		OP1(list), OP1(head), OP1(tail), OP1(join), OP1(eval),
-		OP2(+, add), OP2(-, sub), OP2(/, div),
+mval* builtin_mul(menv* e, mval* a)
+{
+	return builtin_math_op(e, a, "*");
+}
+
+mval* builtin_div(menv* e, mval* a)
+{
+	return builtin_math_op(e, a, "/");
+}
+
+void menv_add_builtin(menv* e, char* name, mbuiltin func)
+{
+	mval* k = mval_symbol(name);
+	mval* v = mval_func(func);
+	menv_put(e, k, v);
+	mval_delete(k);
+	mval_delete(v);
+}
+
+void menv_add_builtins(menv* e)
+{
+	struct
+	{
+		char* name;
+		mbuiltin func;
+	} const builtins[] = {
+		// List Functions
+#define LOP(name) {#name, builtin_##name,}
+		LOP(list), LOP(head), LOP(tail),
+		LOP(eval), LOP(join),
+
+		// Math Functions
+#define MOP(symb, name) {#symb, builtin_##name,}
+		MOP(+, add), MOP(-, sub),
+		MOP(*, mul), MOP(/, div)
 	};
 
-	for_range(i, 0, len(ops))
+	for_range(i, 0, len(builtins))
 	{
-		if (strcmp(ops[i].name, sym) == 0)
-			return &ops[i];
-	}
-
-	return NULL;
-}
-
-mval* apply_operator(mval* v, const moper* op)
-{
-	if (op != NULL)
-	{
-		return builtin(v, op);
-	}
-	else
-	{
-		return mval_error("Unknown Function");
+		menv_add_builtin(e, builtins[i].name, builtins[i].func);
 	}
 }
 
-mval* mval_eval_sexpr(mval* v)
+mval* mval_eval_sexpr(menv* e, mval* v)
 {
 	mlist* l = &v->exprs;
 
 	for_range(i, 0, l->count)
 	{
-		l->values[i] = mval_eval(l->values[i]);
+		l->values[i] = mval_eval(e, l->values[i]);
 	}
 
 	for_range(i, 0, l->count)
@@ -355,30 +460,32 @@ mval* mval_eval_sexpr(mval* v)
 		return mval_take(v, 0);
 	}
 
-	mval* f = mval_pop(&v->exprs, 0);
+	mval* f = mval_pop(l, 0);
 
-	switch (f->type)
+	if (f->type != MVAL_FUNC)
 	{
-	case MVAL_SYMBOL:
-	{
-		const moper* op = get_operator_by_symbol(f->symbol);
-		mval* result = apply_operator(v, op);
-		mval_delete(f);
-		return result;
-	}
-	default:
-	{
-		mval_delete(f);
 		mval_delete(v);
-		return mval_error("Invalid S-expression");
+		mval_delete(f);
+		return mval_error("First value in SEXPR not a function");
 	}
-	}
+
+	mval* result = f->func(e, v);
+	mval_delete(f);
+	return result;
 }
 
-mval* mval_eval(mval* v)
+mval* mval_eval(menv* e, mval* v)
 {
+	if (v->type == MVAL_SYMBOL)
+	{
+		mval* x = menv_get(e, v);
+		mval_delete(v);
+		return x;
+	}
+
 	if (v->type == MVAL_SEXPR)
-		return mval_eval_sexpr(v);
+		return mval_eval_sexpr(e, v);
+
 	return v;
 }
 
@@ -432,6 +539,7 @@ mval* mval_read(mpc_ast_t* t)
 		return mval_symbol(t->contents);
 
 	mval* x = get_expr_type(tag);
+	assert(x);
 
 	for (mpc_ast_t** child = t->children;
 		 child != t->children + t->children_num;
