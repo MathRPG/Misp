@@ -118,11 +118,11 @@ mval* mval_read_num(const char* s)
 	return mval_int(value);
 }
 
-void mval_list_add(mlist* v, mval* x)
+void mval_list_add(mlist* l, mval* x)
 {
-	v->count++;
-	v->values = realloc(v->values, sizeof(mval*) * v->count);
-	v->values[v->count - 1] = x;
+	l->count++;
+	l->values = realloc(l->values, sizeof(mval*) * l->count);
+	l->values[l->count - 1] = x;
 }
 
 mval* mval_pop(mlist* l, int i)
@@ -150,8 +150,12 @@ mval* mval_take(mval* v, int i)
 	return x;
 }
 
-mval* builtin_op(mval* v, const moper* op)
+// TODO: remake interface
+mval* builtin(mval* v, const moper* op)
 {
+	if (op->type == MOPER_UNARY)
+		return op->apply_unary(v);
+
 	mlist* l = &v->exprs;
 
 	for_range(i, 0, l->count)
@@ -167,14 +171,14 @@ mval* builtin_op(mval* v, const moper* op)
 
 	if (l->count == 0)
 	{
-		op->apply(x, NULL);
+		op->apply_binary(x, NULL);
 		return x;
 	}
 
 	while (l->count > 0)
 	{
 		mval* y = mval_pop(&v->exprs, 0);
-		op->apply(x, y);
+		op->apply_binary(x, y);
 		mval_delete(y);
 	}
 
@@ -182,36 +186,129 @@ mval* builtin_op(mval* v, const moper* op)
 	return x;
 }
 
-static void mval_builtin_add(mval* x, mval* y)
-{
-	if (y == NULL)
-		return;
+#define MASSERT(args, cond, err) \
+    if (!(cond)) { mval_delete(args); return mval_error(err); }
 
-	x->num += y->num;
+mval* builtin_head(mval* v)
+{
+	mlist* l = &v->exprs;
+
+	MASSERT(v, l->count == 1,
+		"Function 'head' expects 1 argument");
+	MASSERT(v, l->values[0]->type == MVAL_QEXPR,
+		"Function 'head' expects QEXPR argument");
+	MASSERT(v, l->values[0]->exprs.count != 0,
+		"Function 'head' expects QEXPR with at least 1 element");
+
+	mval* x = mval_take(v, 0);
+
+	while (x->exprs.count > 1)
+	{
+		mval_delete(mval_pop(&x->exprs, 1));
+	}
+
+	return x;
 }
 
-static void mval_builtin_sub(mval* x, mval* y)
+mval* builtin_tail(mval* v)
+{
+	mlist* l = &v->exprs;
+
+	MASSERT(v, l->count == 1,
+		"Function 'tail' expects 1 argument");
+	MASSERT(v, l->values[0]->type == MVAL_QEXPR,
+		"Function 'tail' expects QEXPR argument");
+	MASSERT(v, l->values[0]->exprs.count != 0,
+		"Function 'tail' expects QEXPR with at least 1 element");
+
+	mval* x = mval_take(v, 0);
+	mval_delete(mval_pop(&x->exprs, 0));
+	return x;
+}
+
+mval* builtin_list(mval* v)
+{
+	v->type = MVAL_QEXPR;
+	return v;
+}
+
+mval* builtin_eval(mval* v)
+{
+	mlist* l = &v->exprs;
+
+	MASSERT(v, l->count == 1,
+		"Function 'eval' expects 1 argument");
+	MASSERT(v, l->values[0]->type == MVAL_QEXPR,
+		"Function 'eval' expects QEXPR argument");
+
+	mval* x = mval_take(v, 0);
+	x->type = MVAL_SEXPR;
+	return mval_eval(x);
+}
+
+mval* mval_join(mval* x, mval* y)
+{
+	while (y->exprs.count)
+	{
+		mval_list_add(&x->exprs, mval_pop(&y->exprs, 0));
+	}
+
+	mval_delete(y);
+	return x;
+}
+
+mval* builtin_join(mval* v)
+{
+	mlist* l = &v->exprs;
+	for_range(i, 0, l->count)
+	{
+		MASSERT(v, l->values[i]->type == MVAL_QEXPR,
+			"Function 'join' expects QEXPR arguments");
+	}
+
+	mval* x = mval_pop(l, 0);
+
+	while (l->count)
+	{
+		x = mval_join(x, mval_pop(l, 0));
+	}
+
+	mval_delete(v);
+	return x;
+}
+
+mval* builtin_add(mval* x, mval* y)
+{
+	x->num += y->num;
+	return x;
+}
+
+mval* builtin_sub(mval* x, mval* y)
 {
 	if (y == NULL)
 	{
 		x->num *= -1;
-		return;
+		return x;
 	}
 
 	x->num -= y->num;
+	return x;
 }
 
-static void mval_builtin_div(mval* x, mval* y)
+mval* builtin_div(mval* x, mval* y)
 {
 	x->num /= y->num;
+	return x;
 }
 
 static const moper* get_operator_by_symbol(char* sym)
 {
+#define OP1(name) { #name, MOPER_UNARY, builtin_ ## name, }
+#define OP2(symb, name) { #symb, MOPER_BINARY, .apply_binary = builtin_ ## name, }
+
 	static const moper ops[] = {
-		{ "+", mval_builtin_add, },
-		{ "-", mval_builtin_sub, },
-		{ "/", mval_builtin_div, },
+		OP1(list), OP1(head), OP1(tail), OP1(join), OP1(eval),
+		OP2(+, add), OP2(-, sub), OP2(/, div),
 	};
 
 	for_range(i, 0, len(ops))
@@ -221,6 +318,18 @@ static const moper* get_operator_by_symbol(char* sym)
 	}
 
 	return NULL;
+}
+
+mval* apply_operator(mval* v, const moper* op)
+{
+	if (op != NULL)
+	{
+		return builtin(v, op);
+	}
+	else
+	{
+		return mval_error("Unknown Function");
+	}
 }
 
 mval* mval_eval_sexpr(mval* v)
@@ -252,7 +361,8 @@ mval* mval_eval_sexpr(mval* v)
 	{
 	case MVAL_SYMBOL:
 	{
-		mval* result = builtin_op(v, get_operator_by_symbol(f->symbol));
+		const moper* op = get_operator_by_symbol(f->symbol);
+		mval* result = apply_operator(v, op);
 		mval_delete(f);
 		return result;
 	}
@@ -297,7 +407,7 @@ mval* get_expr_type(const char* tag)
 
 bool hasAddableExpression(mpc_ast_t* const* child)
 {
-	if(strcmp((*child)->tag, "regex") == 0)
+	if (strcmp((*child)->tag, "regex") == 0)
 		return false;
 
 	const char* parens[] = {
