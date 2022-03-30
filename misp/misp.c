@@ -13,18 +13,37 @@
 #define for_range(var, start, stop) \
     for(int (var) = (start); (var) < (stop); ++(var))
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "bugprone-macro-parentheses"
+#define MVAL_CTOR(name, type, arg, enum_, field_set) \
+    mval* mval_ ## name (type arg) {             \
+        mval* v = malloc(sizeof *v);        \
+        *v = (mval) {(enum_), field_set,};   \
+        return v;                             \
+    }
+#pragma clang diagnostic pop
+
+MVAL_CTOR_LIST
+
+#undef MVAL_CTOR
+
+const struct MispList EmptyMispList = {
+	.count = 0, .values = NULL,
+};
+
 void mval_delete(mval* v)
 {
 	switch (v->type)
 	{
 	case MVAL_SEXPR:
+	case MVAL_QEXPR:
 	{
-		for_range(i, 0, v->sexpr.count)
+		for_range(i, 0, v->exprs.count)
 		{
-			mval_delete(v->sexpr.values[i]);
+			mval_delete(v->exprs.values[i]);
 		}
 
-		free(v->sexpr.values);
+		free(v->exprs.values);
 		break;
 	}
 
@@ -43,9 +62,9 @@ void mval_delete(mval* v)
 	free(v);
 }
 
-void mval_sexpr_print(mlist* l)
+void mval_exprs_print(mlist* l, const char* paren)
 {
-	putchar('(');
+	putchar(paren[0]);
 
 	for_range(i, 0, l->count)
 	{
@@ -57,7 +76,7 @@ void mval_sexpr_print(mlist* l)
 		}
 	}
 
-	putchar(')');
+	putchar(paren[1]);
 }
 
 void mval_print(mval* v)
@@ -65,7 +84,10 @@ void mval_print(mval* v)
 	switch (v->type)
 	{
 	case MVAL_SEXPR:
-		mval_sexpr_print(&v->sexpr);
+		mval_exprs_print(&v->exprs, "()");
+		break;
+	case MVAL_QEXPR:
+		mval_exprs_print(&v->exprs, "{}");
 		break;
 	case MVAL_ERROR:
 		printf("Error: %s", v->error);
@@ -88,12 +110,12 @@ void mval_println(mval* v)
 mval* mval_read_num(const char* s)
 {
 	errno = 0;
-	long double value = strtold(s, NULL);
+	long value = strtol(s, NULL, 10);
 
 	if (errno == ERANGE)
 		return mval_error("Invalid Number");
 
-	return mval_int((long)value);
+	return mval_int(value);
 }
 
 void mval_list_add(mlist* v, mval* x)
@@ -123,14 +145,14 @@ mval* mval_pop(mlist* l, int i)
 
 mval* mval_take(mval* v, int i)
 {
-	mval* x = mval_pop(&v->sexpr, i);
+	mval* x = mval_pop(&v->exprs, i);
 	mval_delete(v);
 	return x;
 }
 
 mval* builtin_op(mval* v, const moper* op)
 {
-	mlist* l = &v->sexpr;
+	mlist* l = &v->exprs;
 
 	for_range(i, 0, l->count)
 	{
@@ -151,7 +173,7 @@ mval* builtin_op(mval* v, const moper* op)
 
 	while (l->count > 0)
 	{
-		mval* y = mval_pop(&v->sexpr, 0);
+		mval* y = mval_pop(&v->exprs, 0);
 		op->apply(x, y);
 		mval_delete(y);
 	}
@@ -203,7 +225,7 @@ static const moper* get_operator_by_symbol(char* sym)
 
 mval* mval_eval_sexpr(mval* v)
 {
-	mlist* l = &v->sexpr;
+	mlist* l = &v->exprs;
 
 	for_range(i, 0, l->count)
 	{
@@ -224,7 +246,7 @@ mval* mval_eval_sexpr(mval* v)
 		return mval_take(v, 0);
 	}
 
-	mval* f = mval_pop(&v->sexpr, 0);
+	mval* f = mval_pop(&v->exprs, 0);
 
 	switch (f->type)
 	{
@@ -250,11 +272,45 @@ mval* mval_eval(mval* v)
 	return v;
 }
 
-static bool hasMispExpression(mpc_ast_t* const* child)
+mval* get_expr_type(const char* tag)
 {
-	return !(strcmp((*child)->tag, "regex") == 0
-			 || strcmp((*child)->contents, "(") == 0
-			 || strcmp((*child)->contents, ")") == 0);
+	if (strcmp(tag, ">") == 0)
+		return mval_sexpr();
+
+	struct
+	{
+		const char* tag;
+		mval* (* ctor)(void);
+	} const types[] = {
+		{ "sexpr", mval_sexpr },
+		{ "qexpr", mval_qexpr },
+	};
+
+	for_range(i, 0, len(types))
+	{
+		if (strstr(tag, types[i].tag))
+			return types[i].ctor();
+	}
+
+	return NULL;
+}
+
+bool hasAddableExpression(mpc_ast_t* const* child)
+{
+	if(strcmp((*child)->tag, "regex") == 0)
+		return false;
+
+	const char* parens[] = {
+		"(", ")", "{", "}"
+	};
+
+	for_range(i, 0, len(parens))
+	{
+		if (strcmp((*child)->contents, parens[i]) == 0)
+			return false;
+	}
+
+	return true;
 }
 
 mval* mval_read(mpc_ast_t* t)
@@ -265,19 +321,15 @@ mval* mval_read(mpc_ast_t* t)
 	if (strstr(tag, "symbol"))
 		return mval_symbol(t->contents);
 
-	// Is not root and is not sexpr
-	if (strcmp(tag, ">") != 0 && !strstr(tag, "sexpr"))
-		return mval_error("Invalid token");
-
-	mval* x = mval_sexpr();
+	mval* x = get_expr_type(tag);
 
 	for (mpc_ast_t** child = t->children;
 		 child != t->children + t->children_num;
 		 ++child)
 	{
-		if (hasMispExpression(child))
+		if (hasAddableExpression(child))
 		{
-			mval_list_add(&x->sexpr, mval_read(*child));
+			mval_list_add(&x->exprs, mval_read(*child));
 		}
 	}
 

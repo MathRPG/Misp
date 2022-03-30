@@ -1,5 +1,4 @@
-#ifndef MISP_H
-#define MISP_H
+#pragma once
 
 #include <stdlib.h>
 #include <string.h>
@@ -14,15 +13,14 @@ struct MispList
 {
 	int count;
 	mval** values;
-} const EmptyMispList = {
-	.count = 0, .values = NULL,
-};
+} extern const EmptyMispList;
 
 struct MispValue
 {
 	enum mval_type
 	{
 		MVAL_SEXPR,
+		MVAL_QEXPR,
 		MVAL_ERROR,
 		MVAL_SYMBOL,
 		MVAL_INT,
@@ -30,7 +28,7 @@ struct MispValue
 
 	union
 	{
-		mlist sexpr;
+		mlist exprs;
 		char* error;
 		char* symbol;
 		long num;
@@ -43,20 +41,18 @@ struct MispOper
 	void (* apply)(mval*, mval*);
 };
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "bugprone-macro-parentheses"
-#define MVAL_CTOR(name, type, arg, enum_, field_set) \
-    mval* mval_ ## name (type arg) {             \
-        mval* v = malloc(sizeof *v);        \
-        *v = (mval) {(enum_), field_set,};   \
-        return v;                             \
-    }
-#pragma clang diagnostic pop
+#define MVAL_CTOR(name, type, arg, enum_, field_set) mval* mval_##name(type arg);
 
-MVAL_CTOR(sexpr, void, , MVAL_SEXPR, EmptyMispList)
-MVAL_CTOR(error, char*, m, MVAL_ERROR, .error = strdup(m))
-MVAL_CTOR(symbol, char*, s, MVAL_SYMBOL, .symbol = strdup(s))
-MVAL_CTOR(int, long, x, MVAL_INT, x)
+#define MVAL_CTOR_LIST\
+	MVAL_CTOR(sexpr, void, , MVAL_SEXPR, EmptyMispList)\
+	MVAL_CTOR(qexpr, void, , MVAL_QEXPR, EmptyMispList)\
+	MVAL_CTOR(error, char*, m, MVAL_ERROR, .error = strdup(m))\
+	MVAL_CTOR(symbol, char*, s, MVAL_SYMBOL, .symbol = strdup(s))\
+	MVAL_CTOR(int, long, x, MVAL_INT, x)
+
+MVAL_CTOR_LIST
+
+#undef MVAL_CTOR
 
 mval* mval_read(mpc_ast_t* t);
 
@@ -66,5 +62,3 @@ void mval_print(mval*);
 void mval_println(mval* v);
 
 void mval_delete(mval* v);
-
-#endif //MISP_H
