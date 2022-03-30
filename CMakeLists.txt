@@ -3,6 +3,6 @@ project(C_BuildYourOwnLisp C)
 
 set(CMAKE_C_STANDARD 99)
 
-add_executable(C_BuildYourOwnLisp main.c mpc/mpc.c mpc/mpc.h)
+add_executable(C_BuildYourOwnLisp main.c mpc/mpc.c mpc/mpc.h misp/misp.c misp/misp.h)
 
 target_link_libraries(C_BuildYourOwnLisp -ledit -lm)
