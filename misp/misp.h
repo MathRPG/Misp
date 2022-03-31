@@ -5,18 +5,10 @@
 
 #include "../mpc/mpc.h"
 
-typedef struct MispList mlist;
 typedef struct MispValue mval;
 typedef struct MispEnv menv;
-typedef struct MispOper moper;
 
 typedef mval* (* mbuiltin)(menv*, mval*);
-
-struct MispList
-{
-	int count;
-	mval** values;
-} extern const EmptyMispList;
 
 struct MispValue
 {
@@ -27,15 +19,21 @@ struct MispValue
 		MVAL_FUNC,
 		MVAL_ERROR,
 		MVAL_SYMBOL,
-		MVAL_INT,
+		MVAL_NUM,
 	} type;
 
 	union
 	{
-		mlist exprs;
+		struct
+		{
+			int count;
+			mval** vals;
+		};
+
 		mbuiltin func;
-		char* error;
-		char* symbol;
+
+		char* err;
+		char* sym;
 		long num;
 	};
 };
@@ -46,34 +44,6 @@ struct MispEnv
 	char** syms;
 	mval** vals;
 };
-
-struct MispOper
-{
-	char* name;
-	enum
-	{
-		MOPER_UNARY, MOPER_BINARY
-	} type;
-
-	union
-	{
-		mval* (* apply_unary)(mval*);
-		mval* (* apply_binary)(mval*, mval*);
-	};
-};
-
-#define MVAL_CTOR(name, type, arg, enum_, field_set) mval* mval_##name(type arg);
-
-#define MVAL_CTOR_LIST\
-    MVAL_CTOR(sexpr, void, , MVAL_SEXPR, exprs = EmptyMispList)\
-    MVAL_CTOR(qexpr, void, , MVAL_QEXPR, exprs = EmptyMispList)\
-    MVAL_CTOR(func, mbuiltin, f, MVAL_FUNC, func = f)\
-    MVAL_CTOR(symbol, char*, s, MVAL_SYMBOL, symbol = strdup(s))\
-    MVAL_CTOR(int, long, x, MVAL_INT, num = x)
-
-MVAL_CTOR_LIST
-
-#undef MVAL_CTOR
 
 menv* menv_new(void);
 void menv_delete(menv*);
@@ -87,4 +57,4 @@ mval* mval_eval(menv* e, mval* v);
 void mval_print(mval*);
 void mval_println(mval* v);
 
-void mval_delete(mval* v);
+void mval_del(mval* v);

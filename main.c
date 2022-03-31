@@ -7,7 +7,7 @@
 #include "mpc/mpc.h"
 #include "misp/misp.h"
 
-#define VERSION_INFO "0.0.3"
+#define VERSION_INFO "0.0.11"
 
 #define len(array) (sizeof (array) / sizeof *(array))
 #define for_range(var, start, stop) \
@@ -21,10 +21,10 @@ mpc_parser_t** create_language(void)
 	} const parser_properties[] = {
 //		{ "number", " /[+-]?([0-9]*[.])?[0-9]+/ ", },
 		{ "number", " /[+-]?[0-9]+/ ", },
-		{ "symbol", " /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/", },
+		{ "sym", " /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/", },
 		{ "sexpr", " '(' <expr>* ')' ", },
 		{ "qexpr", " '{' <expr>* '}' ", },
-		{ "expr", " <number> | <symbol> | <sexpr> | <qexpr> ", },
+		{ "expr", " <number> | <sym> | <sexpr> | <qexpr> ", },
 		{ "misp", " /^/ <expr>* /$/ ", },
 	};
 
@@ -70,13 +70,13 @@ int main()
 
 	while (1)
 	{
-		char* const input = readline("Misp> ");
+		char* const input = readline("misp> ");
 
 		if (strlen(input) == 0)
 		{
 			free(input);
-			cleanup_parsers(parsers);
 			menv_delete(e);
+			cleanup_parsers(parsers);
 			return 0;
 		}
 
@@ -88,7 +88,7 @@ int main()
 			mval* v = mval_read(r.output);
 			v = mval_eval(e, v);
 			mval_println(v);
-			mval_delete(v);
+			mval_del(v);
 
 			mpc_ast_delete(r.output);
 		}
