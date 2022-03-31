@@ -1,5 +1,6 @@
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "misc-no-recursion"
+#pragma ide diagnostic ignored "bugprone-macro-parentheses"
 #pragma ide diagnostic ignored "DanglingPointer"
 
 // TODO: double, more ops, refactor
@@ -224,6 +225,41 @@ mval* mval_take(mval* v, int i)
 	mval* x = mval_pop(v, i);
 	mval_del(v);
 	return x;
+}
+
+int mval_eq(mval* x, mval* y)
+{
+	if (x->type != y->type)
+		return 0;
+
+	switch (x->type)
+	{
+	case MVAL_SEXPR:
+	case MVAL_QEXPR:
+	{
+		if (x->count != y->count)
+			return 0;
+		for_range(i, 0, x->count)
+		{
+			if (!mval_eq(x->vals[i], y->vals[i]))
+				return 0;
+		}
+		return 1;
+	}
+	case MVAL_FUNC:
+		if (x->func || y->func)
+			return x->func == y->func;
+		return mval_eq(x->args, y->args)
+			   && mval_eq(x->body, y->body);
+	case MVAL_ERROR:
+		return strcmp(x->err, y->err) == 0;
+	case MVAL_SYMBOL:
+		return strcmp(x->sym, y->sym) == 0;
+	case MVAL_NUM:
+		return x->num == y->num;
+	}
+
+	assert(0);
 }
 
 void mval_print_expr(mval* v, const char* paren)
@@ -546,6 +582,61 @@ mval* builtin_div(menv* e, mval* a)
 	return builtin_math_op(e, a, "/");
 }
 
+#define BUILTIN_CMP(F) \
+    F(gt, >)                  \
+    F(lt, <)                  \
+    F(ge, >=)                 \
+    F(le, <=)
+
+mval* builtin_ord(__attribute__((unused)) menv* e, mval* a, const char* op)
+{
+	MASSERT_NUM(op, a, 2);
+	MASSERT_TYPE(op, a, 0, MVAL_NUM);
+	MASSERT_TYPE(op, a, 1, MVAL_NUM);
+
+	long x = a->vals[0]->num, y = a->vals[1]->num;
+
+	mval_del(a);
+
+#define CMP_OPER(name, symb) \
+    if (strcmp(op, #symb) == 0) {\
+        return mval_num(x symb y); \
+    }
+
+	BUILTIN_CMP(CMP_OPER);
+
+	return mval_err("Invalid Comparison Symbol '%s'", op);
+}
+
+#define CMP_FUNC(name, symb) \
+    mval* builtin_##name (menv* e, mval* a) { return builtin_ord(e, a, #symb); }
+
+BUILTIN_CMP(CMP_FUNC)
+
+mval* builtin_cmp(menv* e, mval* a, const char* op)
+{
+	MASSERT_NUM(op, a, 2);
+
+	mval* x = a->vals[0], * y = a->vals[1];
+	int r = mval_eq(x, y);
+
+	if (strcmp(op, "!=") == 0)
+		r = !r;
+
+	mval_del(a);
+	return mval_num(r);
+}
+
+mval* builtin_eq(menv* e, mval* a)
+{
+	return builtin_cmp(e, a, "==");
+}
+
+mval* builtin_ne(menv* e, mval* a)
+{
+	return builtin_cmp(e, a, "!=");
+}
+
 typeof(menv_def)* get_menv_func(const char* func_name)
 {
 	struct
@@ -568,7 +659,7 @@ typeof(menv_def)* get_menv_func(const char* func_name)
 
 mval* builtin_var(menv* e, mval* a, char* func_name)
 {
-	MASSERT_TYPE("func_name", a, 0, MVAL_QEXPR);
+	MASSERT_TYPE(func_name, a, 0, MVAL_QEXPR);
 
 	mval* syms = a->vals[0];
 
@@ -631,6 +722,52 @@ mval* builtin_lambda(__attribute__((unused)) menv* e, mval* a)
 	return mval_lambda(args, body);
 }
 
+mval* builtin_if(menv* e, mval* a)
+{
+	MASSERT_NUM("if", a, 3);
+	MASSERT_TYPE("if", a, 0, MVAL_NUM);
+	MASSERT_TYPE("if", a, 1, MVAL_QEXPR);
+	MASSERT_TYPE("if", a, 2, MVAL_QEXPR);
+
+	a->vals[1]->type = MVAL_SEXPR;
+	a->vals[2]->type = MVAL_SEXPR;
+
+	long r = a->vals[0]->num;
+	mval* x = mval_eval(e, mval_pop(a, r ? 1 : 2));
+
+	mval_del(a);
+	return x;
+}
+
+mval* builtin_fun(menv* e, mval* a)
+{
+	MASSERT_NUM("fun", a, 2);
+	MASSERT_TYPE("fun", a, 0, MVAL_QEXPR);
+	MASSERT_TYPE("fun", a, 1, MVAL_QEXPR);
+
+	for_range(i, 0, a->vals[0]->count)
+	{
+		enum mval_type type = a->vals[0]->vals[i]->type;
+		MASSERT(a, (type == MVAL_SYMBOL),
+			"Cannot define non-symbol.\nGot %s, Expected %s.",
+			mtype_name(type),
+			mtype_name(MVAL_SYMBOL));
+	}
+
+	mval* body = mval_pop(a, 1);
+	mval* args = builtin_tail(e, mval_copy(a));
+
+	mval* to_def = mval_add(
+		mval_add(
+			mval_qexpr(),
+			builtin_head(e, a)
+		),
+		mval_lambda(args, body)
+	);
+
+	return builtin_def(e, to_def);
+}
+
 void menv_add_builtin(menv* e, char* name, mbuiltin func)
 {
 	mval* k = mval_sym(name);
@@ -642,6 +779,7 @@ void menv_add_builtin(menv* e, char* name, mbuiltin func)
 
 //#define LOP(name) {#name, builtin_##name,}
 //#define MOP(symb, name) {#symb, builtin_##name,}
+//#define COP(name, symb) {#symb, builtin_##name,},
 
 void menv_add_builtins(menv* e)
 {
@@ -652,7 +790,9 @@ void menv_add_builtins(menv* e)
 	} const static builtins[] = {
 		{ "def", builtin_def, },
 		{ "=", builtin_put, },
-		{ "\\", builtin_lambda },
+		{ "\\", builtin_lambda, },
+		{ "fun", builtin_fun, },
+		{ "if", builtin_if, },
 		// List Functions
 		{ "list", builtin_list, },
 		{ "head", builtin_head, },
@@ -664,6 +804,13 @@ void menv_add_builtins(menv* e)
 		{ "-", builtin_sub, },
 		{ "*", builtin_mul, },
 		{ "/", builtin_div, },
+		// Comparison Functions
+		{ ">", builtin_gt, },
+		{ "<", builtin_lt, },
+		{ ">=", builtin_ge, },
+		{ "<=", builtin_le, },
+		{ "==", builtin_eq, },
+		{ "!=", builtin_ne, },
 	};
 
 	for_range(i, 0, len(builtins))
