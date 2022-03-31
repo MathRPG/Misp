@@ -41,6 +41,19 @@ mval* mval_func(mbuiltin f)
 	return v;
 }
 
+mval* mval_lambda(mval* args, mval* body)
+{
+	mval* v = malloc(sizeof *v);
+	*v = (mval){
+		.type = MVAL_FUNC,
+		.func = NULL,
+		.env = menv_new(),
+		.args = args,
+		.body = body,
+	};
+	return v;
+}
+
 #define ERR_MAX_SIZE 512
 
 __attribute__((format(printf, 1, 2)))
@@ -94,6 +107,12 @@ void mval_del(mval* v)
 	}
 
 	case MVAL_FUNC:
+		if (v->func == NULL)
+		{
+			menv_del(v->env);
+			mval_del(v->args);
+			mval_del(v->body);
+		}
 		break;
 
 	case MVAL_ERROR:
@@ -110,6 +129,8 @@ void mval_del(mval* v)
 
 	free(v);
 }
+
+menv* menv_copy(menv* e);
 
 mval* mval_copy(mval* v)
 {
@@ -134,6 +155,12 @@ mval* mval_copy(mval* v)
 
 	case MVAL_FUNC:
 		x->func = v->func;
+		if (v->func == NULL)
+		{
+			x->env = menv_copy(v->env);
+			x->args = mval_copy(v->args);
+			x->body = mval_copy(v->body);
+		}
 		break;
 
 	case MVAL_ERROR:
@@ -227,7 +254,18 @@ void mval_print(mval* v)
 		mval_print_expr(v, "{}");
 		break;
 	case MVAL_FUNC:
-		printf("<function>");
+		if (v->func != NULL)
+		{
+			printf("<builtin>");
+		}
+		else
+		{
+			printf("(\\ ");
+			mval_print(v->args);
+			putchar(' ');
+			mval_print(v->body);
+			putchar(')');
+		}
 		break;
 	case MVAL_ERROR:
 		printf("Error: %s", v->err);
@@ -247,7 +285,7 @@ void mval_println(mval* v)
 	putchar('\n');
 }
 
-const char* mval_type_name(enum mval_type t)
+const char* mtype_name(enum mval_type t)
 {
 	struct
 	{
@@ -275,6 +313,7 @@ menv* menv_new(void)
 {
 	menv* e = malloc(sizeof *e);
 	*e = (menv){
+		.par = NULL,
 		.count = 0,
 		.syms = NULL,
 		.vals = NULL,
@@ -282,7 +321,7 @@ menv* menv_new(void)
 	return e;
 }
 
-void menv_delete(menv* e)
+void menv_del(menv* e)
 {
 	for_range(i, 0, e->count)
 	{
@@ -295,6 +334,25 @@ void menv_delete(menv* e)
 	free(e);
 }
 
+menv* menv_copy(menv* e)
+{
+	menv* n = malloc(sizeof *n);
+	*n = (menv){
+		.par = e->par,
+		.count = e->count,
+		.syms = malloc(sizeof(char*) * e->count),
+		.vals = malloc(sizeof(mval*) * e->count),
+	};
+
+	for_range(i, 0, e->count)
+	{
+		n->syms[i] = strdup(e->syms[i]);
+		n->vals[i] = mval_copy(e->vals[i]);
+	}
+
+	return n;
+}
+
 mval* menv_get(menv* e, mval* k)
 {
 	for_range(i, 0, e->count)
@@ -302,6 +360,9 @@ mval* menv_get(menv* e, mval* k)
 		if (strcmp(e->syms[i], k->sym) == 0)
 			return mval_copy(e->vals[i]);
 	}
+
+	if (e->par != NULL)
+		return menv_get(e->par, k);
 
 	return mval_err("Unbound Symbol '%s'", k->sym);
 }
@@ -327,6 +388,13 @@ void menv_put(menv* e, mval* k, mval* v)
 	e->syms[e->count - 1] = strdup(k->sym);
 }
 
+void menv_def(menv* e, mval* k, mval* v)
+{
+	while (e->par != NULL)
+		e = e->par;
+	menv_put(e, k, v);
+}
+
 #define MASSERT(args, cond, fmt, ...) \
     if (!(cond)) {                    \
     mval* err = mval_err(fmt, ##__VA_ARGS__); \
@@ -336,7 +404,7 @@ void menv_put(menv* e, mval* k, mval* v)
     MASSERT(args, (args)->vals[index]->type == (expect), \
         "Function '%s' passed with incorrect type for argument %i.\n" \
         "Got %s, Expected %s.",                       \
-        func, index, mval_type_name((args)->vals[index]->type), mval_type_name(expect))
+        func, index, mtype_name((args)->vals[index]->type), mtype_name(expect))
 
 #define MASSERT_NUM(func, args, num) \
     MASSERT(args, (args)->count == (num),   \
@@ -478,33 +546,89 @@ mval* builtin_div(menv* e, mval* a)
 	return builtin_math_op(e, a, "/");
 }
 
-mval* builtin_def(menv* e, mval* a)
+typeof(menv_def)* get_menv_func(const char* func_name)
 {
-	MASSERT_TYPE("def", a, 0, MVAL_QEXPR);
+	struct
+	{
+		const char* name;
+		typeof(menv_def)* func;
+	} scope_funcs[] = {
+		{ "def", menv_def, },
+		{ "=", menv_put, },
+	};
+
+	for_range(i, 0, len(scope_funcs))
+	{
+		if (strcmp(scope_funcs[i].name, func_name) == 0)
+			return scope_funcs[i].func;
+	}
+
+	return NULL;
+}
+
+mval* builtin_var(menv* e, mval* a, char* func_name)
+{
+	MASSERT_TYPE("func_name", a, 0, MVAL_QEXPR);
 
 	mval* syms = a->vals[0];
 
 	for_range(i, 0, syms->count)
 	{
 		MASSERT(a, (syms->vals[i]->type == MVAL_SYMBOL),
-			"Function 'def' cannot define non-symbol.\n"
+			"Function '%s' cannot define non-symbol.\n"
 			"Got %s, Expected %s.",
-			mval_type_name(syms->vals[i]->type),
-			mval_type_name(MVAL_SYMBOL));
+			func_name,
+			mtype_name(syms->vals[i]->type),
+			mtype_name(MVAL_SYMBOL));
 	}
 
 	MASSERT(a, (syms->count == a->count - 1),
-		"Function 'def' passed with incorrect number of arguments.\n"
+		"Function '%s' passed with incorrect number of arguments.\n"
 		"Got %i, Expected %i.",
-		syms->count, a->count - 1);
+		func_name, syms->count, a->count - 1);
+
+	typeof(menv_def)* menv_func = get_menv_func(func_name);
+	assert(menv_func);
 
 	for_range(i, 0, syms->count)
 	{
-		menv_put(e, syms->vals[i], a->vals[i + 1]);
+		menv_func(e, syms->vals[i], a->vals[i + 1]);
 	}
 
 	mval_del(a);
 	return mval_sexpr();
+}
+
+mval* builtin_def(menv* e, mval* a)
+{
+	return builtin_var(e, a, "def");
+}
+
+mval* builtin_put(menv* e, mval* a)
+{
+	return builtin_var(e, a, "=");
+}
+
+mval* builtin_lambda(__attribute__((unused)) menv* e, mval* a)
+{
+	MASSERT_NUM("\\", a, 2);
+	MASSERT_TYPE("\\", a, 0, MVAL_QEXPR);
+	MASSERT_TYPE("\\", a, 1, MVAL_QEXPR);
+
+	for_range(i, 0, a->vals[0]->count)
+	{
+		enum mval_type type = a->vals[0]->vals[i]->type;
+		MASSERT(a, (type == MVAL_SYMBOL),
+			"Cannot define non-symbol.\nGot %s, Expected %s.",
+			mtype_name(type),
+			mtype_name(MVAL_SYMBOL));
+	}
+
+	mval* args = mval_pop(a, 0);
+	mval* body = mval_pop(a, 0);
+	mval_del(a);
+
+	return mval_lambda(args, body);
 }
 
 void menv_add_builtin(menv* e, char* name, mbuiltin func)
@@ -527,6 +651,8 @@ void menv_add_builtins(menv* e)
 		mbuiltin func;
 	} const static builtins[] = {
 		{ "def", builtin_def, },
+		{ "=", builtin_put, },
+		{ "\\", builtin_lambda },
 		// List Functions
 		{ "list", builtin_list, },
 		{ "head", builtin_head, },
@@ -544,6 +670,88 @@ void menv_add_builtins(menv* e)
 	{
 		menv_add_builtin(e, builtins[i].name, builtins[i].func);
 	}
+}
+
+mval* mval_call(menv* e, mval* f, mval* a)
+{
+	if (f->func)
+		return f->func(e, a);
+
+	int given = a->count;
+	int total = f->args->count;
+
+	while (a->count)
+	{
+		if (f->args->count == 0)
+		{
+			mval_del(a);
+			return mval_err(
+				"Function called with too many arguments.\n"
+				"Got %i, Expected %i.", given, total);
+		}
+
+		mval* sym = mval_pop(f->args, 0);
+
+		if (strcmp(sym->sym, "&") == 0)
+		{
+			if (f->args->count != 1)
+			{
+				mval_del(a);
+				return mval_err(
+					"Function format invalid.\n"
+					"Symbol '&' not followed by single symbol.");
+			}
+
+			mval* next_symbol = mval_pop(f->args, 0);
+			menv_put(f->env, next_symbol, builtin_list(e, a));
+			mval_del(sym);
+			mval_del(next_symbol);
+			break;
+		}
+
+		mval* val = mval_pop(a, 0);
+
+		menv_put(f->env, sym, val);
+
+		mval_del(sym);
+		mval_del(val);
+	}
+
+	mval_del(a);
+
+	if (f->args->count > 0
+		&& strcmp(f->args->vals[0]->sym, "&") == 0)
+	{
+		if (f->args->count != 2)
+		{
+			return mval_err(
+				"Function format invalid.\n"
+				"Symbol '&' not followed by single symbol.");
+		}
+
+		mval_del(mval_pop(f->args, 0));
+
+		mval* sym = mval_pop(f->args, 0);
+		mval* val = mval_qexpr();
+
+		menv_put(f->env, sym, val);
+
+		mval_del(sym);
+		mval_del(val);
+	}
+
+	if (f->args->count > 0)
+		return mval_copy(f);
+
+	f->env->par = e;
+
+	return builtin_eval(
+		f->env,
+		mval_add(
+			mval_sexpr(),
+			mval_copy(f->body)
+		)
+	);
 }
 
 mval* mval_eval_sexpr(menv* e, mval* v)
@@ -571,14 +779,14 @@ mval* mval_eval_sexpr(menv* e, mval* v)
 		mval* err = mval_err(
 			"S-Expression starts with incorrect type.\n"
 			"Got %s, Expected %s.",
-			mval_type_name(f->type), mval_type_name(MVAL_FUNC)
+			mtype_name(f->type), mtype_name(MVAL_FUNC)
 		);
 		mval_del(f);
 		mval_del(v);
 		return err;
 	}
 
-	mval* result = f->func(e, v);
+	mval* result = mval_call(e, f, v);
 	mval_del(f);
 	return result;
 }

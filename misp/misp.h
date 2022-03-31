@@ -30,7 +30,13 @@ struct MispValue
 			mval** vals;
 		};
 
-		mbuiltin func;
+		struct
+		{
+			mbuiltin func;
+			menv* env;
+			mval* args;
+			mval* body;
+		};
 
 		char* err;
 		char* sym;
@@ -40,13 +46,14 @@ struct MispValue
 
 struct MispEnv
 {
+	menv* par;
 	int count;
 	char** syms;
 	mval** vals;
 };
 
 menv* menv_new(void);
-void menv_delete(menv*);
+void menv_del(menv* e);
 
 void menv_add_builtins(menv* e);
 

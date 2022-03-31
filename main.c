@@ -75,7 +75,7 @@ int main()
 		if (strlen(input) == 0)
 		{
 			free(input);
-			menv_delete(e);
+			menv_del(e);
 			cleanup_parsers(parsers);
 			return 0;
 		}
