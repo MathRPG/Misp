@@ -770,35 +770,6 @@ mval* builtin_if(menv* e, mval* a)
 	return x;
 }
 
-mval* builtin_fun(menv* e, mval* a)
-{
-	MASSERT_NUM("fun", a, 2);
-	MASSERT_TYPE("fun", a, 0, MVAL_QEXPR);
-	MASSERT_TYPE("fun", a, 1, MVAL_QEXPR);
-
-	for_range(i, 0, a->vals[0]->count)
-	{
-		enum mval_type type = a->vals[0]->vals[i]->type;
-		MASSERT(a, (type == MVAL_SYMBOL),
-			"Cannot define non-symbol.\nGot %s, Expected %s.",
-			mtype_name(type),
-			mtype_name(MVAL_SYMBOL));
-	}
-
-	mval* body = mval_pop(a, 1);
-	mval* args = builtin_tail(e, mval_copy(a));
-
-	mval* to_def = mval_add(
-		mval_add(
-			mval_qexpr(),
-			builtin_head(e, a)
-		),
-		mval_lambda(args, body)
-	);
-
-	return builtin_def(e, to_def);
-}
-
 mval* builtin_print(menv* e, mval* a)
 {
 	for_range(i, 0, a->count)
@@ -902,7 +873,6 @@ void menv_add_builtins(menv* e)
 		{ "def", builtin_def, },
 		{ "=", builtin_put, },
 		{ "\\", builtin_lambda, },
-		{ "fun", builtin_fun, },
 		{ "if", builtin_if, },
 		{ "print", builtin_print, },
 		{ "error", builtin_error, },
