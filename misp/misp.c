@@ -11,6 +11,7 @@
 #include <assert.h>
 
 #include "misp.h"
+#include "parsing.h"
 
 #define len(array) (sizeof (array) / sizeof *(array))
 #define for_range(var, start, stop) \
@@ -83,7 +84,7 @@ mval* mval_sym(char* s)
 	return v;
 }
 
-mval* mval_str(char* s)
+mval* mval_str(const char* s)
 {
 	mval* v = malloc(sizeof *v);
 	v->type = (MVAL_STRING);
@@ -825,6 +826,59 @@ mval* builtin_error(menv* e, mval* a)
 	return err;
 }
 
+mval* builtin_load(menv* e, mval* a)
+{
+	MASSERT_NUM("load", a, 1);
+	MASSERT_TYPE("load", a, 0, MVAL_STRING);
+
+	mpc_result_t r;
+	if (mpc_parse_contents(
+		a->vals[0]->str,
+		get_lang_parser(), &r))
+	{
+		mval* expr = mval_read(r.output);
+		mpc_ast_delete(r.output);
+
+		while (expr->count)
+		{
+			mval* x = mval_eval(e, mval_pop(expr, 0));
+			if (x->type == MVAL_ERROR)
+				mval_println(x);
+			mval_del(x);
+		}
+
+		mval_del(expr);
+		mval_del(a);
+
+		return mval_sexpr();
+	}
+	else
+	{
+		char* err_msg = mpc_err_string(r.error);
+		mpc_err_delete(r.error);
+
+		mval* err = mval_err("Could not load file %s", err_msg);
+		free(err_msg);
+		mval_del(a);
+
+		return err;
+	}
+}
+
+void load_file(menv* e, const char* filename)
+{
+	mval* args = mval_add(
+		mval_sexpr(),
+		mval_str(filename)
+	);
+
+	mval* x = builtin_load(e, args);
+
+	if (x->type == MVAL_ERROR)
+		mval_println(x);
+	mval_del(x);
+}
+
 void menv_add_builtin(menv* e, char* name, mbuiltin func)
 {
 	mval* k = mval_sym(name);
@@ -852,6 +906,7 @@ void menv_add_builtins(menv* e)
 		{ "if", builtin_if, },
 		{ "print", builtin_print, },
 		{ "error", builtin_error, },
+		{ "load", builtin_load, },
 		// List Functions
 		{ "list", builtin_list, },
 		{ "head", builtin_head, },

@@ -9,16 +9,8 @@
 
 #define VERSION_INFO "0.0.14"
 
-int main()
+int interactive_prompt(menv* e)
 {
-	init_lang_parsers();
-
-	puts("Misp Version " VERSION_INFO);
-	puts("Empty input to exit\n");
-
-	menv* e = menv_new();
-	menv_add_builtins(e);
-
 	while (1)
 	{
 		char* const input = readline("misp> ");
@@ -27,7 +19,6 @@ int main()
 		{
 			free(input);
 			menv_del(e);
-			cleanup_lang_parsers();
 			return 0;
 		}
 
@@ -51,4 +42,29 @@ int main()
 
 		free(input);
 	}
+}
+
+int main(int argc, char* argv[])
+{
+	init_lang_parsers();
+	atexit(cleanup_lang_parsers);
+
+	puts("Misp Version " VERSION_INFO);
+	puts("Empty input to exit\n");
+
+	menv* e = menv_new();
+	menv_add_builtins(e);
+
+	if (argc >= 2)
+	{
+		for (int i = 1; i < argc; ++i)
+		{
+			load_file(e, argv[i]);
+		}
+
+		menv_del(e);
+		return 0;
+	}
+
+	return interactive_prompt(e);
 }

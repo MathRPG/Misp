@@ -55,15 +55,15 @@ struct MispEnv
 };
 
 menv* menv_new(void);
+void menv_add_builtins(menv* e);
 void menv_del(menv* e);
 
-void menv_add_builtins(menv* e);
-
 mval* mval_read(mpc_ast_t* t);
-
 mval* mval_eval(menv* e, mval* v);
 
 void mval_print(mval*);
 void mval_println(mval* v);
 
 void mval_del(mval* v);
+
+void load_file(menv* e, const char* filename);
