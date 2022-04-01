@@ -7,7 +7,7 @@
 #include "mpc/mpc.h"
 #include "misp/misp.h"
 
-#define VERSION_INFO "0.0.11"
+#define VERSION_INFO "0.0.14"
 
 #define len(array) (sizeof (array) / sizeof *(array))
 #define for_range(var, start, stop) \
@@ -19,16 +19,18 @@ mpc_parser_t** create_language(void)
 	{
 		const char* name, * rule;
 	} const parser_properties[] = {
-//		{ "number", " /[+-]?([0-9]*[.])?[0-9]+/ ", },
 		{ "number", " /[+-]?[0-9]+/ ", },
-		{ "sym", " /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/", },
+		{ "symbol", " /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/", },
+		{ "string", " /\"(\\\\.|[^\"])*\"/ ", },
+		{ "comment", " /;[^\\r\\n]*/ ", },
 		{ "sexpr", " '(' <expr>* ')' ", },
 		{ "qexpr", " '{' <expr>* '}' ", },
-		{ "expr", " <number> | <sym> | <sexpr> | <qexpr> ", },
+		{ "expr", " <number> | <symbol> | <string> |"
+				  " <comment> | <sexpr> | <qexpr> ", },
 		{ "misp", " /^/ <expr>* /$/ ", },
 	};
 
-#define MISP 5
+#define MISP 7
 	assert(MISP + 1 == len(parser_properties));
 
 	static mpc_parser_t* parsers[len(parser_properties)];
@@ -48,18 +50,30 @@ mpc_parser_t** create_language(void)
 	}
 
 	mpca_lang(MPCA_LANG_DEFAULT, language_grammar,
-		parsers[0], parsers[1], parsers[2], parsers[3], parsers[4], parsers[5]);
+		parsers[0], parsers[1], parsers[2], parsers[3],
+		parsers[4], parsers[5], parsers[6], parsers[7]);
 
 	return parsers;
 }
 
-void cleanup_parsers(mpc_parser_t* const* const parsers)
+void cleanup_parsers(mpc_parser_t* const parsers[const static MISP + 1])
 {
-	mpc_cleanup(5, parsers[0], parsers[1], parsers[2], parsers[3], parsers[4], parsers[5]);
+	mpc_cleanup(MISP + 1,
+		parsers[0], parsers[1], parsers[2], parsers[3],
+		parsers[4], parsers[5], parsers[6], parsers[7]);
+}
+
+void test(void)
+{
+	const char* t = "\"Hello\"";
+	char* d = strndup(t + 1, strlen(t) - 2);
+	assert(strcmp(d, "Hello") == 0);
 }
 
 int main()
 {
+	test();
+
 	mpc_parser_t* const* const parsers = create_language();
 
 	puts("Misp Version " VERSION_INFO);

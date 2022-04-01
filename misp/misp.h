@@ -19,6 +19,7 @@ struct MispValue
 		MVAL_FUNC,
 		MVAL_ERROR,
 		MVAL_SYMBOL,
+		MVAL_STRING,
 		MVAL_NUM,
 	} type;
 
@@ -40,6 +41,7 @@ struct MispValue
 
 		char* err;
 		char* sym;
+		char* str;
 		long num;
 	};
 };

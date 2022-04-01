@@ -83,6 +83,14 @@ mval* mval_sym(char* s)
 	return v;
 }
 
+mval* mval_str(char* s)
+{
+	mval* v = malloc(sizeof *v);
+	v->type = (MVAL_STRING);
+	v->str = strdup(s);
+	return v;
+}
+
 mval* mval_num(long x)
 {
 	mval* v = malloc(sizeof *v);
@@ -122,6 +130,10 @@ void mval_del(mval* v)
 
 	case MVAL_SYMBOL:
 		free(v->sym);
+		break;
+
+	case MVAL_STRING:
+		free(v->str);
 		break;
 
 	case MVAL_NUM:
@@ -170,6 +182,10 @@ mval* mval_copy(mval* v)
 
 	case MVAL_SYMBOL:
 		x->sym = strdup(v->sym);
+		break;
+
+	case MVAL_STRING:
+		x->str = strdup(v->str);
 		break;
 
 	case MVAL_NUM:
@@ -255,6 +271,8 @@ int mval_eq(mval* x, mval* y)
 		return strcmp(x->err, y->err) == 0;
 	case MVAL_SYMBOL:
 		return strcmp(x->sym, y->sym) == 0;
+	case MVAL_STRING:
+		return strcmp(x->str, y->str) == 0;
 	case MVAL_NUM:
 		return x->num == y->num;
 	}
@@ -277,6 +295,14 @@ void mval_print_expr(mval* v, const char* paren)
 	}
 
 	putchar(paren[1]);
+}
+
+void mval_print_str(mval* v)
+{
+	char* escaped = strdup(v->str);
+	escaped = mpcf_escape(escaped);
+	printf("\"%s\"", escaped);
+	free(escaped);
 }
 
 void mval_print(mval* v)
@@ -309,6 +335,9 @@ void mval_print(mval* v)
 	case MVAL_SYMBOL:
 		printf("%s", v->sym);
 		break;
+	case MVAL_STRING:
+		mval_print_str(v);
+		break;
 	case MVAL_NUM:
 		printf("%li", v->num);
 		break;
@@ -333,6 +362,7 @@ const char* mtype_name(enum mval_type t)
 		{ MVAL_FUNC, "Function", },
 		{ MVAL_ERROR, "Error", },
 		{ MVAL_SYMBOL, "Symbol", },
+		{ MVAL_STRING, "String", },
 		{ MVAL_NUM, "Number", },
 	};
 
@@ -964,6 +994,16 @@ mval* mval_read_num(const char* s)
 	return mval_num(value);
 }
 
+mval* mval_read_str(const char* s)
+{
+	// Cut off \" chars from start and end
+	char* unescaped = strndup(s + 1, strlen(s) - 2);
+	unescaped = mpcf_unescape(unescaped);
+	mval* str = mval_str(unescaped);
+	free(unescaped);
+	return str;
+}
+
 mval* get_expr_type(const char* tag);
 bool should_skip(const mpc_ast_t* child);
 
@@ -972,8 +1012,10 @@ mval* mval_read(mpc_ast_t* t)
 	const char* tag = t->tag;
 	if (strstr(tag, "number"))
 		return mval_read_num(t->contents);
-	if (strstr(tag, "sym"))
+	if (strstr(tag, "symbol"))
 		return mval_sym(t->contents);
+	if (strstr(tag, "string"))
+		return mval_read_str(t->contents);
 
 	mval* x = get_expr_type(tag);
 	assert(x);
@@ -1025,6 +1067,9 @@ bool should_skip(const mpc_ast_t* child)
 		if (strcmp(child->contents, parens[i]) == 0)
 			return true;
 	}
+
+	if (strstr(child->tag, "comment"))
+		return true;
 
 	if (strcmp(child->tag, "regex") == 0)
 		return true;
