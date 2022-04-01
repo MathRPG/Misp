@@ -798,6 +798,33 @@ mval* builtin_fun(menv* e, mval* a)
 	return builtin_def(e, to_def);
 }
 
+mval* builtin_print(menv* e, mval* a)
+{
+	for_range(i, 0, a->count)
+	{
+		mval_print(a->vals[i]);
+
+		if (i != a->count - 1)
+			putchar(' ');
+	}
+
+	putchar('\n');
+	mval_del(a);
+
+	return mval_sexpr();
+}
+
+mval* builtin_error(menv* e, mval* a)
+{
+	MASSERT_NUM("error", a, 1);
+	MASSERT_TYPE("error", a, 0, MVAL_STRING);
+
+	mval* err = mval_err("%s", a->vals[0]->str);
+
+	mval_del(a);
+	return err;
+}
+
 void menv_add_builtin(menv* e, char* name, mbuiltin func)
 {
 	mval* k = mval_sym(name);
@@ -823,6 +850,8 @@ void menv_add_builtins(menv* e)
 		{ "\\", builtin_lambda, },
 		{ "fun", builtin_fun, },
 		{ "if", builtin_if, },
+		{ "print", builtin_print, },
+		{ "error", builtin_error, },
 		// List Functions
 		{ "list", builtin_list, },
 		{ "head", builtin_head, },
