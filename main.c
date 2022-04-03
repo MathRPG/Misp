@@ -9,6 +9,34 @@
 
 #define VERSION_INFO "0.0.14"
 
+void interpret_input(menv* e, const char* input)
+{
+	mpc_result_t r;
+	if (mpc_parse("<stdin>", input, get_lang_parser(), &r))
+	{
+		mval* v = mval_read(r.output);
+		v = mval_eval(e, v);
+		mval_println(v);
+		mval_del(v);
+
+		mpc_ast_delete(r.output);
+	}
+	else
+	{
+		mpc_err_print(r.error);
+		mpc_err_delete(r.error);
+	}
+}
+
+void interpret_input_(menv* e, char* input)
+{
+	int pos = 0;
+	mval* expr = mval_read_expr_(input, &pos, '\0');
+	mval* x = mval_eval(e, expr);
+	mval_println(x);
+	mval_del(x);
+}
+
 int interactive_prompt(menv* e)
 {
 	while (1)
@@ -24,21 +52,7 @@ int interactive_prompt(menv* e)
 
 		add_history(input);
 
-		mpc_result_t r;
-		if (mpc_parse("<stdin>", input, get_lang_parser(), &r))
-		{
-			mval* v = mval_read(r.output);
-			v = mval_eval(e, v);
-			mval_println(v);
-			mval_del(v);
-
-			mpc_ast_delete(r.output);
-		}
-		else
-		{
-			mpc_err_print(r.error);
-			mpc_err_delete(r.error);
-		}
+		interpret_input_(e, input);
 
 		free(input);
 	}

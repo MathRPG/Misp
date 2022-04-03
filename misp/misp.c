@@ -298,12 +298,62 @@ void mval_print_expr(mval* v, const char* paren)
 	putchar(paren[1]);
 }
 
-void mval_print_str(mval* v)
+void mval_print_str_(mval* v)
 {
 	char* escaped = strdup(v->str);
 	escaped = mpcf_escape(escaped);
 	printf("\"%s\"", escaped);
 	free(escaped);
+}
+
+char* mval_str_escape(char x)
+{
+	switch (x)
+	{
+	case '\a':
+		return "\\a";
+	case '\b':
+		return "\\b";
+	case '\f':
+		return "\\f";
+	case '\n':
+		return "\\n";
+	case '\r':
+		return "\\r";
+	case '\t':
+		return "\\t";
+	case '\v':
+		return "\\v";
+	case '\\':
+		return "\\\\";
+	case '\'':
+		return "\\\'";
+	case '\"':
+		return "\\\"";
+	default:
+		return "";
+	}
+}
+
+void mval_print_str(mval* v)
+{
+	static char* mval_str_escapable = "\a\b\f\n\r\t\v\\\'\"";
+
+	putchar('\"');
+
+	for_range(i, 0, strlen(v->str))
+	{
+		if (strchr(mval_str_escapable, v->str[i]))
+		{
+			printf("%s", mval_str_escape(v->str[i]));
+		}
+		else
+		{
+			putchar(v->str[i]);
+		}
+	}
+
+	putchar('\"');
 }
 
 void mval_print(mval* v)
@@ -337,7 +387,7 @@ void mval_print(mval* v)
 		printf("%s", v->sym);
 		break;
 	case MVAL_STRING:
-		mval_print_str(v);
+		mval_print_str_(v);
 		break;
 	case MVAL_NUM:
 		printf("%li", v->num);
@@ -1048,7 +1098,7 @@ mval* mval_read_num(const char* s)
 	return mval_num(value);
 }
 
-mval* mval_read_str(const char* s)
+mval* mval_read_str_(const char* s)
 {
 	// Cut off \" chars from start and end
 	char* unescaped = strndup(s + 1, strlen(s) - 2);
@@ -1056,6 +1106,181 @@ mval* mval_read_str(const char* s)
 	mval* str = mval_str(unescaped);
 	free(unescaped);
 	return str;
+}
+
+int mval_read_sym(mval* v, char* s, int i)
+{
+	char* part = calloc(1, 1);
+
+	while (strchr(
+		"abcdefghijklmnopqrstuvwxyz"
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		"0123456789_+-*\\/=<>!&", s[i]) && s[i] != '\0')
+	{
+		part = realloc(part, strlen(part) + 2);
+		part[strlen(part) + 1] = '\0';
+		part[strlen(part) + 0] = s[i];
+		i++;
+	}
+
+	int is_num = strchr("-0123456789", part[0]) ? 1 : 0;
+
+	if (is_num)
+	{
+		errno = 0;
+		long x = strtol(part, NULL, 10);
+		mval_add(v, errno != ERANGE ? mval_num(x) : mval_err("Invalid Number %s", part));
+	}
+	else
+	{
+		mval_add(v, mval_sym(part));
+	}
+
+	free(part);
+	return i;
+}
+
+char mval_str_unescape(char x)
+{
+	switch (x)
+	{
+	case 'a':
+		return '\a';
+	case 'b':
+		return '\b';
+	case 'f':
+		return '\f';
+	case 'n':
+		return '\n';
+	case 'r':
+		return '\r';
+	case 't':
+		return '\t';
+	case 'v':
+		return '\v';
+	case '\\':
+		return '\\';
+	case '\'':
+		return '\'';
+	case '\"':
+		return '\"';
+	default:
+		return '\0';
+	}
+}
+
+int mval_read_str(mval* v, char* s, int i)
+{
+	static char* mval_str_unescapable = "abfnrtv\\\'\"";
+
+	char* part = calloc(1, 1);
+
+	while (s[i] != '\"')
+	{
+		char c = s[i];
+
+		if (c == '\0')
+		{
+			mval_add(v, mval_err("Unexpected end of input at string literal"));
+			free(part);
+			return (int)strlen(s);
+		}
+
+		if (c == '\\')
+		{
+			i++;
+
+			if (strchr(mval_str_unescapable, s[i]))
+			{
+				c = mval_str_unescape(s[i]);
+			}
+			else
+			{
+				mval_add(v, mval_err("Invalid escape character %c", c));
+				free(part);
+				return (int)strlen(s);
+			}
+		}
+
+		part = realloc(part, strlen(part) + 2);
+		part[strlen(part) + 1] = '\0';
+		part[strlen(part) + 0] = c;
+		++i;
+	}
+
+	mval_add(v, mval_str(part));
+	free(part);
+	return i + 1;
+}
+
+int mval_read_expr(mval* v, char* s, int i, char end)
+{
+	while (s[i] != end)
+	{
+		if (s[i] == '\0')
+		{
+			mval_add(v, mval_err("Missing %c at the end of input", end));
+			return (int)strlen(s) + 1;
+		}
+
+		if (strchr(" \t\v\r\n", s[i]))
+		{
+			i++;
+			continue;
+		}
+
+		if (s[i] == ';')
+		{
+			while (s[i] != '\n'
+				   && s[i] != '\0')
+			{
+				i++;
+			}
+			i++;
+			continue;
+		}
+
+		if (s[i] == '(')
+		{
+			mval* x = mval_sexpr();
+			mval_add(v, x);
+			i = mval_read_expr(x, s, i + 1, ')');
+			continue;
+		}
+
+		if (s[i] == '{')
+		{
+			mval* x = mval_qexpr();
+			mval_add(v, x);
+			i = mval_read_expr(x, s, i + 1, '}');
+			continue;
+		}
+
+		if (strchr(
+			"abcdefghijklmnopqrstuvwxyz"
+			"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+			"0123456789_+-*\\/=<>!&", s[i]))
+		{
+			i = mval_read_sym(v, s, i);
+			continue;
+		}
+
+		if (strchr("\"", s[i]))
+		{
+			i = mval_read_str(v, s, i);
+			continue;
+		}
+
+		mval_add(v, mval_err("Unknown Character %c", s[i]));
+		return (int)strlen(s) + 1;
+	}
+
+	return i + 1;
+}
+
+mval* mval_read_expr_(char* s, int* i, char end)
+{
+
 }
 
 mval* get_expr_type(const char* tag);
@@ -1069,7 +1294,7 @@ mval* mval_read(mpc_ast_t* t)
 	if (strstr(tag, "symbol"))
 		return mval_sym(t->contents);
 	if (strstr(tag, "string"))
-		return mval_read_str(t->contents);
+		return mval_read_str_(t->contents);
 
 	mval* x = get_expr_type(tag);
 	assert(x);
