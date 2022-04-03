@@ -58,7 +58,6 @@ menv* menv_new(void);
 void menv_add_builtins(menv* e);
 void menv_del(menv* e);
 
-mval* mval_read_expr_(char *s, int* i, char end);
 mval* mval_read(mpc_ast_t* t);
 mval* mval_eval(menv* e, mval* v);
 
