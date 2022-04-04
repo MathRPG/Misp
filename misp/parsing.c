@@ -1,10 +1,7 @@
-#include "parsing.h"
-
 #include <assert.h>
 
-#define len(array) (sizeof (array) / sizeof *(array))
-#define for_range(var, start, stop) \
-    for(int (var) = (start); (var) < (stop); ++(var))
+#include "parsing.h"
+#include "macros.h"
 
 #define PARSER_COUNT 8
 static mpc_parser_t* lang_parsers[PARSER_COUNT];

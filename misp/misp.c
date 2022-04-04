@@ -12,10 +12,7 @@
 
 #include "misp.h"
 #include "builtin.h"
-
-#define len(array) (sizeof (array) / sizeof *(array))
-#define for_range(var, start, stop) \
-    for(int (var) = (start); (var) < (stop); ++(var))
+#include "macros.h"
 
 mval* mval_sexpr(void)
 {
