@@ -357,7 +357,7 @@ const char* mtype_name(enum mval_type t)
 	{
 		enum mval_type type;
 		const char* name;
-	} const types[] = {
+	} const static types[] = {
 		{ MVAL_SEXPR, "S-Expression", },
 		{ MVAL_QEXPR, "Q-Expression", },
 		{ MVAL_FUNC, "Function", },
