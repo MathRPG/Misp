@@ -9,6 +9,10 @@
 #define PARSER_COUNT 8
 static mpc_parser_t* lang_parsers[PARSER_COUNT];
 
+#define ALL_PARSERS \
+    lang_parsers[0], lang_parsers[1], lang_parsers[2], lang_parsers[3],\
+    lang_parsers[4], lang_parsers[5], lang_parsers[6], lang_parsers[7]
+
 void init_lang_parsers(void)
 {
 	struct
@@ -28,7 +32,7 @@ void init_lang_parsers(void)
 
 	assert(PARSER_COUNT == len(parser_properties));
 
-	static char language_grammar[2048];
+	static char language_grammar[512];
 
 	for_range(i, 0, len(parser_properties))
 	{
@@ -43,9 +47,7 @@ void init_lang_parsers(void)
 		strcat(language_grammar, temp);
 	}
 
-	mpca_lang(MPCA_LANG_DEFAULT, language_grammar,
-		lang_parsers[0], lang_parsers[1], lang_parsers[2], lang_parsers[3],
-		lang_parsers[4], lang_parsers[5], lang_parsers[6], lang_parsers[7]);
+	mpca_lang(MPCA_LANG_DEFAULT, language_grammar, ALL_PARSERS);
 }
 
 mpc_parser_t* get_lang_parser(void)
@@ -55,7 +57,5 @@ mpc_parser_t* get_lang_parser(void)
 
 void cleanup_lang_parsers(void)
 {
-	mpc_cleanup(PARSER_COUNT,
-		lang_parsers[0], lang_parsers[1], lang_parsers[2], lang_parsers[3],
-		lang_parsers[4], lang_parsers[5], lang_parsers[6], lang_parsers[7]);
+	mpc_cleanup(PARSER_COUNT, ALL_PARSERS);
 }
