@@ -2,6 +2,7 @@
 #include <assert.h>
 
 #include "misp.h"
+#include "menv.h"
 #include "parsing.h"
 #include "builtin.h"
 #include "macros.h"
@@ -155,7 +156,7 @@ mval* builtin_ord(__attribute__((unused)) menv* e, mval* a, const char* op)
 }
 
 #define CMP_FUNC_DEF(name, symb) \
-    mval* builtin_##name (menv* e, mval* a) { return builtin_ord(e, a, #symb); }
+    typeof(mval*) builtin_##name (menv* e, mval* a) { return builtin_ord(e, a, #symb); }
 
 BUILTIN_CMP(CMP_FUNC_DEF)
 

@@ -7,6 +7,7 @@
 #include "mpc/mpc.h"
 #include "misp/parsing.h"
 #include "misp/misp.h"
+#include "misp/menv.h"
 
 #define VERSION_INFO "0.0.14"
 

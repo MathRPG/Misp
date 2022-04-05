@@ -1,4 +1,5 @@
-#pragma once
+#ifndef BUILTIN_H
+#define BUILTIN_H
 
 mval* builtin_def(menv* e, mval* a);
 mval* builtin_put(menv* e, mval* a);
@@ -34,3 +35,5 @@ BUILTIN_CMP(CMP_FUNC_DECL)
 
 mval* builtin_eq(menv* e, mval* a);
 mval* builtin_ne(menv* e, mval* a);
+
+#endif /* BUILTIN_H */

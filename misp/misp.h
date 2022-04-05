@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MISP_H
+#define MISP_H
 
 #include <stdlib.h>
 #include <string.h>
@@ -54,19 +55,16 @@ struct MispEnv
 	mval** vals;
 };
 
-menv* menv_new(void);
-void menv_add_builtins(menv* e);
-void menv_def(menv* e, mval* k, mval* v);
-void menv_put(menv* e, mval* k, mval* v);
-void menv_del(menv* e);
-
 mval* mval_sexpr(void);
-mval* mval_err(const char* fmt, ...);
+mval* mval_func(mbuiltin f);
 mval* mval_lambda(mval* args, mval* body);
+mval* mval_err(const char* fmt, ...);
+mval* mval_sym(char* s);
 mval* mval_num(long x);
 
 const char* mtype_name(enum mval_type t);
 
+mval* mval_copy(mval* v);
 mval* mval_take(mval* v, int i);
 mval* mval_pop(mval* v, int i);
 mval* mval_join(mval* x, mval* y);
@@ -81,3 +79,5 @@ void mval_println(mval* v);
 void mval_del(mval* v);
 
 void load_file(menv* e, const char* filename);
+
+#endif /* MISP_H */
