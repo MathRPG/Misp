@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#include <editline/history.h>
+//#include <editline/history.h>
+
+#include "editline.h"
 
 #include "mpc/mpc.h"
 #include "misp/parsing.h"
